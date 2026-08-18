@@ -24,7 +24,7 @@ st.set_page_config(
     page_title="Macro Stress Testing Dashboard",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="locked"
+    initial_sidebar_state="expanded"
 )
 
 
@@ -66,6 +66,18 @@ st.markdown(
 
     section[data-testid="stSidebar"] * {
         color: #FFFFFF;
+    }
+    
+    /* NÚT MỞ SIDEBAR KHI SIDEBAR BỊ ĐÓNG */
+    [data-testid="stSidebarCollapsedControl"] {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+    
+    /* ICON CỦA NÚT MỞ SIDEBAR */
+    [data-testid="stSidebarCollapsedControl"] button {
+        color: #FFFFFF !important;
     }
 
     /* MAIN TITLE */
