@@ -22,7 +22,7 @@ from groq import Groq
 
 st.set_page_config(
     page_title="Macro Stress Testing Dashboard",
-    page_icon="Overview",
+    ##page_icon="Overview",
     layout="wide",
     initial_sidebar_state="expanded"
 )
