@@ -488,7 +488,7 @@ def tab0():
             st.markdown("**Đơn vị**")
     
         with col2:
-            st.write("Chinh, Nguyen Thi")
+            st.write("Nguyễn Thị Chinh")
             st.write("Chuyên viên cao cấp")
             st.write("Phòng Quản lý rủi ro tín dụng")
 
