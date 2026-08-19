@@ -3594,14 +3594,13 @@ def tab2():
 # TAB 3 - MACRO ANALYSIS
 # =============================================================================
 
-
 def tab3():
 
     st.title("Phân tích vĩ mô")
 
     st.caption(
-        "Phân tích xu hướng, thống kê mô tả và mối quan hệ giữa "
-        "các biến kinh tế vĩ mô phục vụ xây dựng kịch bản Stress Test."
+        "Phân tích xu hướng, thống kê mô tả, tương quan và mối quan hệ "
+        "giữa các biến kinh tế vĩ mô theo tần suất năm hoặc tháng."
     )
 
     st.divider()
@@ -3626,10 +3625,10 @@ def tab3():
 
 
     # =========================================================================
-    # DANH MỤC CHỈ TIÊU
+    # CHỈ TIÊU THEO NĂM
     # =========================================================================
 
-    indicators = {
+    annual_indicators = {
 
         "Tăng trưởng GDP (%)":
             "NY.GDP.MKTP.KD.ZG",
@@ -3664,10 +3663,25 @@ def tab3():
 
 
     # =========================================================================
+    # CHỈ TIÊU THEO THÁNG
+    # =========================================================================
+
+    monthly_indicators = {
+
+        "Tỷ giá - giá trị cuối kỳ":
+            "DPANUSSPB",
+
+        "Tỷ giá - giá trị kỳ":
+            "DPANUSSPF"
+    }
+
+
+    # =========================================================================
     # BỘ LỌC
     # =========================================================================
 
     st.subheader("Bộ lọc phân tích")
+
 
     col1, col2 = st.columns(2)
 
@@ -3689,23 +3703,62 @@ def tab3():
 
 
     # -------------------------------------------------------------------------
-    # CHỈ TIÊU
+    # TẦN SUẤT
     # -------------------------------------------------------------------------
 
     with col2:
 
-        selected_indicators = st.multiselect(
-            "Chỉ tiêu phân tích",
-            options=list(indicators.keys()),
-            default=[
-                "Tăng trưởng GDP (%)",
-                "Lạm phát CPI (%)",
-                "Lãi suất thực (%)",
-                "Tín dụng khu vực tư nhân (% GDP)"
+        report_frequency = st.selectbox(
+            "Tần suất báo cáo",
+            [
+                "Theo năm",
+                "Theo tháng"
             ],
-            placeholder="Chọn các chỉ tiêu",
-            key="analysis_indicators"
+            index=0,
+            key="analysis_frequency"
         )
+
+
+    # =========================================================================
+    # CHỌN BỘ INDICATOR
+    # =========================================================================
+
+    if report_frequency == "Theo năm":
+
+        indicators = annual_indicators
+
+        default_indicators = [
+            "Tăng trưởng GDP (%)",
+            "Lạm phát CPI (%)",
+            "Lãi suất thực (%)",
+            "Tín dụng khu vực tư nhân (% GDP)"
+        ]
+
+    else:
+
+        indicators = monthly_indicators
+
+        default_indicators = [
+            "Tỷ giá - giá trị cuối kỳ",
+            "Tỷ giá - giá trị kỳ"
+        ]
+
+
+    # =========================================================================
+    # CHỈ TIÊU
+    # =========================================================================
+
+    selected_indicators = st.multiselect(
+        "Chỉ tiêu phân tích",
+        options=list(indicators.keys()),
+        default=[
+            x
+            for x in default_indicators
+            if x in indicators
+        ],
+        placeholder="Chọn các chỉ tiêu",
+        key=f"analysis_indicators_{report_frequency}"
+    )
 
 
     # =========================================================================
@@ -3713,48 +3766,104 @@ def tab3():
     # =========================================================================
 
     current_year = datetime.now().year
-
-    col_start, col_end = st.columns(2)
-
-
-    with col_start:
-
-        start_year = st.number_input(
-            "Từ năm",
-            min_value=1960,
-            max_value=current_year,
-            value=2000,
-            step=1,
-            key="analysis_start_year"
-        )
+    current_month = datetime.now().month
 
 
-    with col_end:
+    # =========================================================================
+    # ANNUAL
+    # =========================================================================
 
-        end_year = st.number_input(
-            "Đến năm",
-            min_value=1960,
-            max_value=current_year,
-            value=current_year,
-            step=1,
-            key="analysis_end_year"
-        )
+    if report_frequency == "Theo năm":
+
+        col_start, col_end = st.columns(2)
+
+
+        with col_start:
+
+            start_year = st.number_input(
+                "Từ năm",
+                min_value=1960,
+                max_value=current_year,
+                value=2000,
+                step=1,
+                key="analysis_annual_start"
+            )
+
+
+        with col_end:
+
+            end_year = st.number_input(
+                "Đến năm",
+                min_value=1960,
+                max_value=current_year,
+                value=current_year,
+                step=1,
+                key="analysis_annual_end"
+            )
+
+
+        start_month = None
+        end_month = None
+
+
+    # =========================================================================
+    # MONTHLY
+    # =========================================================================
+
+    else:
+
+        col1, col2, col3, col4 = st.columns(4)
+
+
+        with col1:
+
+            start_year = st.number_input(
+                "Từ năm",
+                min_value=1960,
+                max_value=current_year,
+                value=2015,
+                step=1,
+                key="analysis_month_start_year"
+            )
+
+
+        with col2:
+
+            start_month = st.selectbox(
+                "Từ tháng",
+                options=list(range(1, 13)),
+                index=0,
+                key="analysis_start_month"
+            )
+
+
+        with col3:
+
+            end_year = st.number_input(
+                "Đến năm",
+                min_value=1960,
+                max_value=current_year,
+                value=current_year,
+                step=1,
+                key="analysis_month_end_year"
+            )
+
+
+        with col4:
+
+            end_month = st.selectbox(
+                "Đến tháng",
+                options=list(range(1, 13)),
+                index=current_month - 1,
+                key="analysis_end_month"
+            )
 
 
     # =========================================================================
     # VALIDATION
     # =========================================================================
 
-    if start_year > end_year:
-
-        st.error(
-            "Năm bắt đầu không được lớn hơn năm kết thúc."
-        )
-
-        return
-
-
-    if len(selected_indicators) < 1:
+    if not selected_indicators:
 
         st.warning(
             "Vui lòng chọn ít nhất một chỉ tiêu để phân tích."
@@ -3763,16 +3872,50 @@ def tab3():
         return
 
 
+    if int(start_year) > int(end_year):
+
+        st.error(
+            "Thời gian bắt đầu không được lớn hơn thời gian kết thúc."
+        )
+
+        return
+
+
+    if report_frequency == "Theo tháng":
+
+        start_period = (
+            int(start_year) * 100
+            + int(start_month)
+        )
+
+        end_period = (
+            int(end_year) * 100
+            + int(end_month)
+        )
+
+
+        if start_period > end_period:
+
+            st.error(
+                "Tháng bắt đầu không được lớn hơn tháng kết thúc."
+            )
+
+            return
+
+
     # =========================================================================
-    # HÀM DOWNLOAD DATA
+    # DOWNLOAD FUNCTION
     # =========================================================================
 
     @st.cache_data(ttl=3600)
     def get_analysis_data(
         country_code,
         selected_indicators,
+        frequency,
         start_year,
-        end_year
+        end_year,
+        start_month=None,
+        end_month=None
     ):
 
         all_records = []
@@ -3780,21 +3923,56 @@ def tab3():
 
         for indicator_name in selected_indicators:
 
-            indicator_code = indicators[indicator_name]
+            indicator_code = indicators[
+                indicator_name
+            ]
 
 
             url = (
-                f"https://api.worldbank.org/v2/"
+                "https://api.worldbank.org/v2/"
                 f"country/{country_code}/"
                 f"indicator/{indicator_code}"
             )
 
 
-            params = {
-                "format": "json",
-                "date": f"{start_year}:{end_year}",
-                "per_page": 1000
-            }
+            # -----------------------------------------------------------------
+            # ANNUAL
+            # -----------------------------------------------------------------
+
+            if frequency == "Theo năm":
+
+                params = {
+                    "format": "json",
+                    "date":
+                        f"{int(start_year)}:{int(end_year)}",
+                    "per_page": 1000
+                }
+
+
+            # -----------------------------------------------------------------
+            # MONTHLY
+            # -----------------------------------------------------------------
+
+            else:
+
+                start_date = (
+                    f"{int(start_year)}"
+                    f"M{int(start_month):02d}"
+                )
+
+                end_date = (
+                    f"{int(end_year)}"
+                    f"M{int(end_month):02d}"
+                )
+
+
+                params = {
+                    "format": "json",
+                    "date":
+                        f"{start_date}:{end_date}",
+                    "frequency": "M",
+                    "per_page": 5000
+                }
 
 
             try:
@@ -3802,10 +3980,12 @@ def tab3():
                 response = requests.get(
                     url,
                     params=params,
-                    timeout=20
+                    timeout=30
                 )
 
+
                 response.raise_for_status()
+
 
                 data = response.json()
 
@@ -3815,35 +3995,157 @@ def tab3():
                     or len(data) < 2
                     or data[1] is None
                 ):
+
                     continue
 
 
                 for item in data[1]:
 
-                    all_records.append(
-                        {
-                            "Năm": item.get("date"),
-                            "Chỉ tiêu": indicator_name,
-                            "Giá trị": item.get("value")
-                        }
+                    raw_date = str(
+                        item.get(
+                            "date",
+                            ""
+                        )
                     )
 
 
+                    value = item.get(
+                        "value"
+                    )
+
+
+                    if value is None:
+
+                        continue
+
+
+                    # =========================================================
+                    # ANNUAL RECORD
+                    # =========================================================
+
+                    if frequency == "Theo năm":
+
+                        try:
+
+                            year = int(
+                                raw_date
+                            )
+
+                        except Exception:
+
+                            continue
+
+
+                        all_records.append(
+                            {
+                                "Thời gian":
+                                    str(year),
+
+                                "Ngày":
+                                    pd.Timestamp(
+                                        year=year,
+                                        month=1,
+                                        day=1
+                                    ),
+
+                                "Chỉ tiêu":
+                                    indicator_name,
+
+                                "Giá trị":
+                                    value
+                            }
+                        )
+
+
+                    # =========================================================
+                    # MONTHLY RECORD
+                    # =========================================================
+
+                    else:
+
+                        year = None
+                        month = None
+
+
+                        try:
+
+                            if "M" in raw_date:
+
+                                year_text, month_text = (
+                                    raw_date.split("M")
+                                )
+
+                                year = int(
+                                    year_text
+                                )
+
+                                month = int(
+                                    month_text
+                                )
+
+
+                            elif "-" in raw_date:
+
+                                parts = (
+                                    raw_date.split("-")
+                                )
+
+                                year = int(
+                                    parts[0]
+                                )
+
+                                month = int(
+                                    parts[1]
+                                )
+
+
+                        except Exception:
+
+                            continue
+
+
+                        if (
+                            year is None
+                            or month is None
+                        ):
+
+                            continue
+
+
+                        all_records.append(
+                            {
+                                "Thời gian":
+                                    f"{year}-{month:02d}",
+
+                                "Ngày":
+                                    pd.Timestamp(
+                                        year=year,
+                                        month=month,
+                                        day=1
+                                    ),
+
+                                "Chỉ tiêu":
+                                    indicator_name,
+
+                                "Giá trị":
+                                    value
+                            }
+                        )
+
+
             except Exception:
+
                 continue
 
 
-        df = pd.DataFrame(all_records)
+        df = pd.DataFrame(
+            all_records
+        )
 
 
         if df.empty:
+
             return df
-
-
-        df["Năm"] = pd.to_numeric(
-            df["Năm"],
-            errors="coerce"
-        )
 
 
         df["Giá trị"] = pd.to_numeric(
@@ -3852,15 +4154,28 @@ def tab3():
         )
 
 
+        df["Ngày"] = pd.to_datetime(
+            df["Ngày"],
+            errors="coerce"
+        )
+
+
         df = df.dropna(
             subset=[
-                "Năm",
+                "Ngày",
                 "Giá trị"
             ]
         )
 
 
-        df["Năm"] = df["Năm"].astype(int)
+        df = df.sort_values(
+            [
+                "Chỉ tiêu",
+                "Ngày"
+            ]
+        ).reset_index(
+            drop=True
+        )
 
 
         return df
@@ -3876,12 +4191,29 @@ def tab3():
             "Đang tải dữ liệu phân tích..."
         ):
 
-            analysis_raw = get_analysis_data(
-                country_code,
-                selected_indicators,
-                int(start_year),
-                int(end_year)
-            )
+
+            if report_frequency == "Theo năm":
+
+                analysis_raw = get_analysis_data(
+                    country_code,
+                    selected_indicators,
+                    report_frequency,
+                    int(start_year),
+                    int(end_year)
+                )
+
+
+            else:
+
+                analysis_raw = get_analysis_data(
+                    country_code,
+                    selected_indicators,
+                    report_frequency,
+                    int(start_year),
+                    int(end_year),
+                    int(start_month),
+                    int(end_month)
+                )
 
 
     except Exception as e:
@@ -3890,7 +4222,9 @@ def tab3():
             "Không thể tải dữ liệu phân tích."
         )
 
-        st.caption(str(e))
+        st.caption(
+            str(e)
+        )
 
         return
 
@@ -3901,15 +4235,27 @@ def tab3():
             "Không tìm thấy dữ liệu phù hợp."
         )
 
+
+        if report_frequency == "Theo tháng":
+
+            st.caption(
+                "Một số chỉ tiêu hoặc quốc gia có thể "
+                "không có dữ liệu tần suất tháng."
+            )
+
+
         return
 
 
     # =========================================================================
-    # PIVOT DATA
+    # PIVOT
     # =========================================================================
 
     analysis_df = analysis_raw.pivot_table(
-        index="Năm",
+        index=[
+            "Ngày",
+            "Thời gian"
+        ],
         columns="Chỉ tiêu",
         values="Giá trị",
         aggfunc="first"
@@ -3920,13 +4266,19 @@ def tab3():
 
 
     analysis_df = analysis_df.sort_values(
-        "Năm"
-    ).reset_index(drop=True)
+        "Ngày"
+    ).reset_index(
+        drop=True
+    )
 
 
-    # Chỉ giữ các indicator thực sự có dữ liệu
+    # =========================================================================
+    # AVAILABLE INDICATORS
+    # =========================================================================
+
     available_indicators = [
-        x for x in selected_indicators
+        x
+        for x in selected_indicators
         if x in analysis_df.columns
     ]
 
@@ -3941,7 +4293,7 @@ def tab3():
 
 
     # =========================================================================
-    # TỔNG QUAN
+    # OVERVIEW
     # =========================================================================
 
     st.subheader(
@@ -3962,34 +4314,53 @@ def tab3():
     ):
 
         series = analysis_df[
-            ["Năm", indicator]
+            [
+                "Ngày",
+                "Thời gian",
+                indicator
+            ]
         ].dropna()
 
 
         if series.empty:
+
             continue
 
 
         latest = series.iloc[-1]
 
-        latest_year = int(
-            latest["Năm"]
+
+        latest_period = (
+            latest["Thời gian"]
         )
 
-        latest_value = latest[indicator]
+
+        latest_value = (
+            latest[indicator]
+        )
 
 
-        # Previous value
+        # ---------------------------------------------------------------------
+        # PREVIOUS PERIOD
+        # ---------------------------------------------------------------------
+
         if len(series) >= 2:
 
-            previous_value = (
-                series.iloc[-2][indicator]
+            previous = (
+                series.iloc[-2]
             )
+
+
+            previous_value = (
+                previous[indicator]
+            )
+
 
             delta = (
                 latest_value
                 - previous_value
             )
+
 
         else:
 
@@ -4001,7 +4372,7 @@ def tab3():
             st.metric(
                 label=(
                     f"{indicator} "
-                    f"({latest_year})"
+                    f"({latest_period})"
                 ),
 
                 value=(
@@ -4017,7 +4388,7 @@ def tab3():
 
 
     # =========================================================================
-    # XU HƯỚNG VĨ MÔ
+    # TREND ANALYSIS
     # =========================================================================
 
     st.subheader(
@@ -4026,35 +4397,42 @@ def tab3():
 
 
     st.caption(
-        "Các chuỗi có đơn vị và thang đo khác nhau. "
-        "Có thể sử dụng chế độ chuẩn hóa để so sánh xu hướng."
+        "Các chuỗi có thể có đơn vị và thang đo khác nhau. "
+        "Có thể chuẩn hóa dữ liệu để so sánh xu hướng."
     )
 
 
     normalize = st.toggle(
         "Chuẩn hóa dữ liệu để so sánh xu hướng",
         value=True,
-        key="normalize_macro"
+        key=f"normalize_macro_{report_frequency}"
     )
 
 
-    chart_df = analysis_df.copy()
+    chart_df = (
+        analysis_df.copy()
+    )
 
 
-    # -------------------------------------------------------------------------
+    # =========================================================================
     # STANDARDIZATION
-    # -------------------------------------------------------------------------
+    # =========================================================================
 
     if normalize:
 
         for indicator in available_indicators:
 
             mean_value = (
-                chart_df[indicator].mean()
+                chart_df[
+                    indicator
+                ].mean()
             )
 
+
             std_value = (
-                chart_df[indicator].std()
+                chart_df[
+                    indicator
+                ].std()
             )
 
 
@@ -4063,15 +4441,21 @@ def tab3():
                 and std_value != 0
             ):
 
-                chart_df[indicator] = (
-                    chart_df[indicator]
+                chart_df[
+                    indicator
+                ] = (
+
+                    chart_df[
+                        indicator
+                    ]
                     - mean_value
+
                 ) / std_value
 
 
-    # -------------------------------------------------------------------------
-    # CHART
-    # -------------------------------------------------------------------------
+    # =========================================================================
+    # TREND CHART
+    # =========================================================================
 
     fig = go.Figure()
 
@@ -4079,19 +4463,35 @@ def tab3():
     for indicator in available_indicators:
 
         indicator_df = chart_df[
-            ["Năm", indicator]
+            [
+                "Ngày",
+                indicator
+            ]
         ].dropna()
 
 
         fig.add_trace(
             go.Scatter(
-                x=indicator_df["Năm"],
-                y=indicator_df[indicator],
-                mode="lines+markers",
+                x=indicator_df[
+                    "Ngày"
+                ],
+
+                y=indicator_df[
+                    indicator
+                ],
+
+                mode=(
+                    "lines+markers"
+                    if report_frequency
+                    == "Theo năm"
+                    else "lines"
+                ),
+
                 name=indicator,
+
                 hovertemplate=(
                     "<b>%{fullData.name}</b><br>"
-                    "Năm: %{x}<br>"
+                    "Thời gian: %{x}<br>"
                     "Giá trị: %{y:,.2f}"
                     "<extra></extra>"
                 )
@@ -4118,7 +4518,12 @@ def tab3():
             b=20
         ),
 
-        xaxis_title="Năm",
+        xaxis_title=(
+            "Năm"
+            if report_frequency
+            == "Theo năm"
+            else "Tháng"
+        ),
 
         yaxis_title=(
             "Z-score"
@@ -4136,9 +4541,19 @@ def tab3():
     )
 
 
-    fig.update_xaxes(
-        showgrid=False
-    )
+    if report_frequency == "Theo năm":
+
+        fig.update_xaxes(
+            tickformat="%Y",
+            showgrid=False
+        )
+
+    else:
+
+        fig.update_xaxes(
+            tickformat="%m/%Y",
+            showgrid=False
+        )
 
 
     fig.update_yaxes(
@@ -4153,7 +4568,7 @@ def tab3():
 
 
     # =========================================================================
-    # THỐNG KÊ MÔ TẢ
+    # DESCRIPTIVE STATISTICS
     # =========================================================================
 
     st.subheader(
@@ -4166,24 +4581,41 @@ def tab3():
 
     for indicator in available_indicators:
 
-        series = analysis_df[
-            indicator
-        ].dropna()
+        series = (
+            analysis_df[
+                indicator
+            ]
+            .dropna()
+        )
 
 
         if series.empty:
+
             continue
 
 
         descriptive_data.append(
             {
-                "Chỉ tiêu": indicator,
-                "Số quan sát": len(series),
-                "Trung bình": series.mean(),
-                "Trung vị": series.median(),
-                "Thấp nhất": series.min(),
-                "Cao nhất": series.max(),
-                "Độ lệch chuẩn": series.std()
+                "Chỉ tiêu":
+                    indicator,
+
+                "Số quan sát":
+                    len(series),
+
+                "Trung bình":
+                    series.mean(),
+
+                "Trung vị":
+                    series.median(),
+
+                "Thấp nhất":
+                    series.min(),
+
+                "Cao nhất":
+                    series.max(),
+
+                "Độ lệch chuẩn":
+                    series.std()
             }
         )
 
@@ -4202,11 +4634,18 @@ def tab3():
     ]
 
 
-    descriptive_df[
-        numeric_columns
-    ] = descriptive_df[
-        numeric_columns
-    ].round(2)
+    if not descriptive_df.empty:
+
+        descriptive_df[
+            numeric_columns
+        ] = (
+
+            descriptive_df[
+                numeric_columns
+            ]
+            .round(2)
+
+        )
 
 
     st.dataframe(
@@ -4226,8 +4665,8 @@ def tab3():
 
 
     st.caption(
-        "Hệ số tương quan giúp đánh giá mức độ đồng biến hoặc nghịch biến "
-        "giữa các biến vĩ mô. Tương quan không đồng nghĩa với quan hệ nhân quả."
+        "Hệ số tương quan phản ánh mức độ đồng biến hoặc nghịch biến "
+        "giữa các biến. Tương quan không đồng nghĩa với quan hệ nhân quả."
     )
 
 
@@ -4239,10 +4678,6 @@ def tab3():
             min_periods=3
         )
 
-
-        # ---------------------------------------------------------------------
-        # HEATMAP
-        # ---------------------------------------------------------------------
 
         heatmap = go.Figure(
             data=go.Heatmap(
@@ -4267,15 +4702,10 @@ def tab3():
 
 
         heatmap.update_layout(
-
             template="plotly_dark",
-
             height=520,
-
             paper_bgcolor="#0E0E0E",
-
             plot_bgcolor="#0E0E0E",
-
             margin=dict(
                 l=20,
                 r=20,
@@ -4292,7 +4722,7 @@ def tab3():
 
 
         # =====================================================================
-        # CẶP BIẾN
+        # PAIR ANALYSIS
         # =====================================================================
 
         st.subheader(
@@ -4309,29 +4739,27 @@ def tab3():
                 "Biến X",
                 available_indicators,
                 index=0,
-                key="macro_x"
+                key=f"macro_x_{report_frequency}"
             )
 
 
         with col_y:
 
-            default_y = (
-                1
-                if len(available_indicators) > 1
-                else 0
-            )
-
             variable_y = st.selectbox(
                 "Biến Y",
                 available_indicators,
-                index=default_y,
-                key="macro_y"
+                index=(
+                    1
+                    if len(available_indicators) > 1
+                    else 0
+                ),
+                key=f"macro_y_{report_frequency}"
             )
 
 
-        # ---------------------------------------------------------------------
-        # CHECK
-        # ---------------------------------------------------------------------
+        # =====================================================================
+        # SAME VARIABLE
+        # =====================================================================
 
         if variable_x == variable_y:
 
@@ -4339,11 +4767,13 @@ def tab3():
                 "Vui lòng chọn hai biến khác nhau để phân tích."
             )
 
+
         else:
 
             pair_df = analysis_df[
                 [
-                    "Năm",
+                    "Ngày",
+                    "Thời gian",
                     variable_x,
                     variable_y
                 ]
@@ -4352,15 +4782,20 @@ def tab3():
 
             if len(pair_df) >= 3:
 
-                correlation = pair_df[
-                    variable_x
-                ].corr(
-                    pair_df[variable_y]
+                correlation = (
+                    pair_df[
+                        variable_x
+                    ]
+                    .corr(
+                        pair_df[
+                            variable_y
+                        ]
+                    )
                 )
 
 
                 # =============================================================
-                # SIMPLE REGRESSION
+                # REGRESSION
                 # =============================================================
 
                 x = pair_df[
@@ -4402,23 +4837,20 @@ def tab3():
                 )
 
 
-                if ss_tot != 0:
-
-                    r_squared = (
-                        1
-                        - ss_res / ss_tot
-                    )
-
-                else:
-
-                    r_squared = np.nan
+                r_squared = (
+                    1 - ss_res / ss_tot
+                    if ss_tot != 0
+                    else np.nan
+                )
 
 
                 # =============================================================
                 # METRICS
                 # =============================================================
 
-                c1, c2, c3 = st.columns(3)
+                c1, c2, c3 = (
+                    st.columns(3)
+                )
 
 
                 with c1:
@@ -4443,7 +4875,9 @@ def tab3():
                         "R²",
                         (
                             f"{r_squared:.3f}"
-                            if pd.notna(r_squared)
+                            if pd.notna(
+                                r_squared
+                            )
                             else "N/A"
                         )
                     )
@@ -4463,10 +4897,10 @@ def tab3():
                         mode="markers",
                         name="Quan sát",
                         text=pair_df[
-                            "Năm"
+                            "Thời gian"
                         ],
                         hovertemplate=(
-                            "Năm: %{text}<br>"
+                            "Thời gian: %{text}<br>"
                             f"{variable_x}: "
                             "%{x:.2f}<br>"
                             f"{variable_y}: "
@@ -4477,14 +4911,17 @@ def tab3():
                 )
 
 
-                # Sort line
-                order = np.argsort(x)
+                order = np.argsort(
+                    x
+                )
 
 
                 scatter.add_trace(
                     go.Scatter(
                         x=x[order],
-                        y=predicted_y[order],
+                        y=predicted_y[
+                            order
+                        ],
                         mode="lines",
                         name="Đường hồi quy"
                     )
@@ -4492,19 +4929,12 @@ def tab3():
 
 
                 scatter.update_layout(
-
                     template="plotly_dark",
-
                     height=500,
-
                     paper_bgcolor="#0E0E0E",
-
                     plot_bgcolor="#0E0E0E",
-
                     xaxis_title=variable_x,
-
                     yaxis_title=variable_y,
-
                     margin=dict(
                         l=20,
                         r=20,
@@ -4571,37 +5001,56 @@ def tab3():
 
                 else:
 
-                    direction = "không có tương quan tuyến tính"
+                    direction = (
+                        "không có tương quan tuyến tính"
+                    )
+
+
+                if report_frequency == "Theo năm":
+
+                    period_text = (
+                        f"{int(start_year)}–"
+                        f"{int(end_year)}"
+                    )
+
+                else:
+
+                    period_text = (
+                        f"{int(start_month):02d}/"
+                        f"{int(start_year)} – "
+                        f"{int(end_month):02d}/"
+                        f"{int(end_year)}"
+                    )
 
 
                 st.info(
-                    f"Trong giai đoạn {int(start_year)}–{int(end_year)}, "
-                    f"{variable_x} và {variable_y} có mối tương quan "
-                    f"{direction} ở mức {strength} "
+                    f"Trong giai đoạn {period_text}, "
+                    f"{variable_x} và {variable_y} "
+                    f"có mối tương quan {direction} ở mức {strength} "
                     f"(r = {correlation:.3f}). "
-                    "Kết quả này chỉ phản ánh mối liên hệ thống kê và "
-                    "không khẳng định quan hệ nhân quả."
+                    "Kết quả này phản ánh mối liên hệ thống kê "
+                    "và không khẳng định quan hệ nhân quả."
                 )
 
 
             else:
 
                 st.warning(
-                    "Không đủ số quan sát chung giữa hai biến để "
-                    "thực hiện phân tích."
+                    "Không đủ số quan sát chung giữa hai biến "
+                    "để thực hiện phân tích."
                 )
 
 
     else:
 
         st.info(
-            "Chọn ít nhất hai chỉ tiêu để hiển thị "
-            "ma trận tương quan và phân tích quan hệ giữa các biến."
+            "Chọn ít nhất hai chỉ tiêu để hiển thị ma trận tương quan "
+            "và phân tích quan hệ giữa các biến."
         )
 
 
     # =========================================================================
-    # DỮ LIỆU PHÂN TÍCH
+    # DATA VIEW
     # =========================================================================
 
     with st.expander(
@@ -4611,10 +5060,20 @@ def tab3():
         display_analysis_df = (
             analysis_df
             .sort_values(
-                "Năm",
+                "Ngày",
                 ascending=False
             )
             .copy()
+        )
+
+
+        display_analysis_df = (
+            display_analysis_df
+            .drop(
+                columns=[
+                    "Ngày"
+                ]
+            )
         )
 
 
@@ -4631,11 +5090,27 @@ def tab3():
 
     st.divider()
 
-    st.caption(
-        f"Nguồn dữ liệu: World Bank Indicators API • "
-        f"Quốc gia: {selected_country} • "
-        f"Giai đoạn: {int(start_year)}–{int(end_year)}"
-    )
+
+    if report_frequency == "Theo năm":
+
+        st.caption(
+            f"Nguồn dữ liệu: World Bank Indicators API • "
+            f"Quốc gia: {selected_country} • "
+            f"Tần suất: Năm • "
+            f"Giai đoạn: {int(start_year)}–{int(end_year)}"
+        )
+
+
+    else:
+
+        st.caption(
+            f"Nguồn dữ liệu: World Bank High-Frequency Indicators • "
+            f"Quốc gia: {selected_country} • "
+            f"Tần suất: Tháng • "
+            f"Giai đoạn: "
+            f"{int(start_month):02d}/{int(start_year)}–"
+            f"{int(end_month):02d}/{int(end_year)}"
+        )
 
 
 # =============================================================================
