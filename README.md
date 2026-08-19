@@ -93,69 +93,6 @@ The dashboard primarily uses publicly available macroeconomic and financial data
 * Groq API
 * World Bank API
 
-## Analytical Workflow
-
-```text
-Macroeconomic Data
-        ↓
-Macroeconomic Analysis
-        ↓
-Stress Scenario Development
-        ↓
-Stress Testing
-        ↓
-PD / NPL / Expected Loss / CAR
-        ↓
-AI-Assisted Analysis
-        ↓
-Risk Insights & Decision Support
-```
-
-## Installation
-
-Clone the repository:
-
-```bash
-git clone <repository-url>
-cd Macro_VB
-```
-
-Install the required dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-Run the Streamlit application:
-
-```bash
-streamlit run app.py
-```
-
-## AI Configuration
-
-Create:
-
-```text
-.streamlit/secrets.toml
-```
-
-Add your Groq API key:
-
-```toml
-GROQ_API_KEY = "your_groq_api_key"
-```
-
-Do **not** upload `secrets.toml` to GitHub.
-
-Add the following to `.gitignore`:
-
-```text
-.streamlit/secrets.toml
-__pycache__/
-*.pyc
-```
-
 ## Project Structure
 
 ```text
