@@ -16,6 +16,7 @@ from pathlib import Path
 
 from groq import Groq
 
+
 # =============================================================================
 # PAGE CONFIG
 # =============================================================================
@@ -552,6 +553,711 @@ def tab0():
 
 
 # =============================================================================
+# SHARED MACRO DATA ENGINE
+# TAB 1 / TAB 2 / TAB 3
+# =============================================================================
+
+
+# =============================================================================
+# COUNTRY
+# =============================================================================
+
+COUNTRIES = {
+    "Việt Nam": "VNM",
+    "Hoa Kỳ": "USA",
+    "Trung Quốc": "CHN",
+    "Nhật Bản": "JPN",
+    "Hàn Quốc": "KOR",
+    "Singapore": "SGP",
+    "Thái Lan": "THA",
+    "Indonesia": "IDN",
+    "Malaysia": "MYS",
+    "Philippines": "PHL"
+}
+
+
+# =============================================================================
+# ANNUAL MACRO - WORLD BANK
+# =============================================================================
+
+ANNUAL_INDICATORS = {
+
+    "Tăng trưởng kinh tế": {
+
+        "Tăng trưởng GDP (%)":
+            "NY.GDP.MKTP.KD.ZG",
+
+        "GDP (USD)":
+            "NY.GDP.MKTP.CD",
+
+        "GDP bình quân đầu người (USD)":
+            "NY.GDP.PCAP.CD"
+    },
+
+
+    "Lạm phát & Giá cả": {
+
+        "Lạm phát CPI (%)":
+            "FP.CPI.TOTL.ZG",
+
+        "Chỉ số giá tiêu dùng CPI":
+            "FP.CPI.TOTL",
+
+        "GDP Deflator (%)":
+            "NY.GDP.DEFL.KD.ZG"
+    },
+
+
+    "Lãi suất & Tiền tệ": {
+
+        "Lãi suất cho vay (%)":
+            "FR.INR.LEND",
+
+        "Lãi suất tiền gửi (%)":
+            "FR.INR.DPST",
+
+        "Lãi suất thực (%)":
+            "FR.INR.RINR",
+
+        "Cung tiền rộng (% GDP)":
+            "FM.LBL.BMNY.GD.ZS"
+    },
+
+
+    "Tín dụng": {
+
+        "Tín dụng khu vực tư nhân (% GDP)":
+            "FS.AST.PRVT.GD.ZS",
+
+        "Tín dụng nội địa khu vực tư nhân (% GDP)":
+            "FS.AST.DOMS.GD.ZS"
+    },
+
+
+    "Lao động": {
+
+        "Tỷ lệ thất nghiệp (%)":
+            "SL.UEM.TOTL.ZS",
+
+        "Tỷ lệ tham gia lực lượng lao động (%)":
+            "SL.TLF.CACT.ZS"
+    },
+
+
+    "Khu vực đối ngoại": {
+
+        "Tài khoản vãng lai (% GDP)":
+            "BN.CAB.XOKA.GD.ZS",
+
+        "FDI ròng (% GDP)":
+            "BX.KLT.DINV.WD.GD.ZS",
+
+        "Dự trữ ngoại hối (USD)":
+            "FI.RES.TOTL.CD",
+
+        "Nợ nước ngoài (% GNI)":
+            "DT.DOD.DECT.GN.ZS"
+    }
+}
+
+
+# =============================================================================
+# MONTHLY / QUARTERLY MARKET INDICATORS
+# =============================================================================
+#
+# Yahoo Finance
+#
+# Dữ liệu daily được tổng hợp thành:
+# - Monthly: giá trị cuối tháng
+# - Quarterly: giá trị cuối quý
+#
+# =============================================================================
+
+MARKET_INDICATORS = {
+
+    "Thị trường & Tỷ giá": {
+
+        "USD/VND":
+            "VND=X",
+
+        "VN-Index":
+            "^VNINDEX",
+
+        "Giá dầu WTI":
+            "CL=F",
+
+        "Giá vàng":
+            "GC=F",
+
+        "S&P 500":
+            "^GSPC",
+
+        "NASDAQ":
+            "^IXIC"
+    }
+}
+
+
+# =============================================================================
+# FLAT INDICATOR DICTIONARY
+# =============================================================================
+
+def flatten_indicators(indicator_groups):
+
+    result = {}
+
+    for group_name, group_items in indicator_groups.items():
+
+        for indicator_name, code in group_items.items():
+
+            result[indicator_name] = code
+
+    return result
+
+
+ANNUAL_INDICATORS_FLAT = flatten_indicators(
+    ANNUAL_INDICATORS
+)
+
+MARKET_INDICATORS_FLAT = flatten_indicators(
+    MARKET_INDICATORS
+)
+
+
+# =============================================================================
+# FORMAT VALUE
+# =============================================================================
+
+def format_macro_value(value):
+
+    if pd.isna(value):
+        return "N/A"
+
+    if abs(value) >= 1_000_000_000_000:
+        return f"{value / 1_000_000_000_000:,.2f} nghìn tỷ"
+
+    elif abs(value) >= 1_000_000_000:
+        return f"{value / 1_000_000_000:,.2f} tỷ"
+
+    elif abs(value) >= 1_000_000:
+        return f"{value / 1_000_000:,.2f} triệu"
+
+    return f"{value:,.2f}"
+
+
+# =============================================================================
+# WORLD BANK ANNUAL
+# =============================================================================
+
+@st.cache_data(ttl=3600)
+def get_world_bank_annual(
+    country_names,
+    indicator_names,
+    start_year,
+    end_year
+):
+
+    records = []
+
+
+    for country_name in country_names:
+
+        country_code = COUNTRIES[
+            country_name
+        ]
+
+
+        for indicator_name in indicator_names:
+
+            indicator_code = ANNUAL_INDICATORS_FLAT[
+                indicator_name
+            ]
+
+
+            url = (
+                "https://api.worldbank.org/v2/"
+                f"country/{country_code}/"
+                f"indicator/{indicator_code}"
+            )
+
+
+            params = {
+                "format": "json",
+                "date":
+                    f"{int(start_year)}:{int(end_year)}",
+                "per_page": 5000
+            }
+
+
+            try:
+
+                response = requests.get(
+                    url,
+                    params=params,
+                    timeout=30
+                )
+
+                response.raise_for_status()
+
+                data = response.json()
+
+
+                if (
+                    not isinstance(data, list)
+                    or len(data) < 2
+                    or data[1] is None
+                ):
+
+                    continue
+
+
+                for item in data[1]:
+
+                    value = item.get(
+                        "value"
+                    )
+
+
+                    if value is None:
+
+                        continue
+
+
+                    try:
+
+                        year = int(
+                            item.get("date")
+                        )
+
+                    except Exception:
+
+                        continue
+
+
+                    records.append(
+                        {
+                            "Quốc gia":
+                                country_name,
+
+                            "Mã quốc gia":
+                                country_code,
+
+                            "Thời gian":
+                                str(year),
+
+                            "Ngày":
+                                pd.Timestamp(
+                                    year=year,
+                                    month=1,
+                                    day=1
+                                ),
+
+                            "Tần suất":
+                                "Năm",
+
+                            "Chỉ tiêu":
+                                indicator_name,
+
+                            "Mã chỉ tiêu":
+                                indicator_code,
+
+                            "Giá trị":
+                                value,
+
+                            "Nguồn":
+                                "World Bank"
+                        }
+                    )
+
+
+            except Exception:
+
+                continue
+
+
+    df = pd.DataFrame(
+        records
+    )
+
+
+    if df.empty:
+        return df
+
+
+    df["Giá trị"] = pd.to_numeric(
+        df["Giá trị"],
+        errors="coerce"
+    )
+
+
+    df = df.dropna(
+        subset=[
+            "Ngày",
+            "Giá trị"
+        ]
+    )
+
+
+    return (
+        df
+        .sort_values(
+            [
+                "Quốc gia",
+                "Chỉ tiêu",
+                "Ngày"
+            ]
+        )
+        .reset_index(
+            drop=True
+        )
+    )
+
+
+# =============================================================================
+# YAHOO FINANCE MARKET DATA
+# =============================================================================
+
+@st.cache_data(ttl=3600)
+def get_market_data(
+    indicator_names,
+    frequency,
+    start_date,
+    end_date
+):
+
+    records = []
+
+
+    for indicator_name in indicator_names:
+
+        ticker = MARKET_INDICATORS_FLAT[
+            indicator_name
+        ]
+
+
+        try:
+
+            market_df = yf.download(
+                ticker,
+                start=start_date,
+                end=end_date + pd.Timedelta(days=1),
+                interval="1d",
+                auto_adjust=False,
+                progress=False
+            )
+
+
+            if market_df.empty:
+                continue
+
+
+            # =============================================================
+            # FIX MULTIINDEX FROM YFINANCE
+            # =============================================================
+
+            if isinstance(
+                market_df.columns,
+                pd.MultiIndex
+            ):
+
+                if "Close" in market_df.columns.get_level_values(0):
+
+                    close_series = (
+                        market_df["Close"]
+                    )
+
+                    if isinstance(
+                        close_series,
+                        pd.DataFrame
+                    ):
+
+                        close_series = (
+                            close_series.iloc[:, 0]
+                        )
+
+                else:
+
+                    continue
+
+
+            else:
+
+                if "Close" not in market_df.columns:
+                    continue
+
+                close_series = (
+                    market_df["Close"]
+                )
+
+
+            temp = pd.DataFrame(
+                {
+                    "Ngày":
+                        pd.to_datetime(
+                            close_series.index
+                        ),
+
+                    "Giá trị":
+                        pd.to_numeric(
+                            close_series.values,
+                            errors="coerce"
+                        )
+                }
+            )
+
+
+            temp = temp.dropna(
+                subset=[
+                    "Ngày",
+                    "Giá trị"
+                ]
+            )
+
+
+            temp = (
+                temp
+                .set_index("Ngày")
+                .sort_index()
+            )
+
+
+            # =============================================================
+            # MONTHLY
+            # =============================================================
+
+            if frequency == "Theo tháng":
+
+                temp = (
+                    temp
+                    .resample("ME")
+                    .last()
+                    .dropna()
+                )
+
+
+                temp["Thời gian"] = (
+                    temp.index.strftime(
+                        "%Y-%m"
+                    )
+                )
+
+
+                frequency_name = "Tháng"
+
+
+            # =============================================================
+            # QUARTERLY
+            # =============================================================
+
+            else:
+
+                temp = (
+                    temp
+                    .resample("QE")
+                    .last()
+                    .dropna()
+                )
+
+
+                temp["Thời gian"] = (
+                    temp.index.to_period("Q")
+                    .astype(str)
+                )
+
+
+                frequency_name = "Quý"
+
+
+            # =============================================================
+            # OUTPUT
+            # =============================================================
+
+            for date_index, row in temp.iterrows():
+
+                records.append(
+                    {
+                        "Quốc gia":
+                            (
+                                "Việt Nam"
+                                if indicator_name
+                                in [
+                                    "USD/VND",
+                                    "VN-Index"
+                                ]
+                                else "Thị trường quốc tế"
+                            ),
+
+                        "Mã quốc gia":
+                            (
+                                "VNM"
+                                if indicator_name
+                                in [
+                                    "USD/VND",
+                                    "VN-Index"
+                                ]
+                                else "GLOBAL"
+                            ),
+
+                        "Thời gian":
+                            row["Thời gian"],
+
+                        "Ngày":
+                            date_index,
+
+                        "Tần suất":
+                            frequency_name,
+
+                        "Chỉ tiêu":
+                            indicator_name,
+
+                        "Mã chỉ tiêu":
+                            ticker,
+
+                        "Giá trị":
+                            row["Giá trị"],
+
+                        "Nguồn":
+                            "Yahoo Finance"
+                    }
+                )
+
+
+        except Exception:
+
+            continue
+
+
+    df = pd.DataFrame(
+        records
+    )
+
+
+    if df.empty:
+        return df
+
+
+    return (
+        df
+        .sort_values(
+            [
+                "Chỉ tiêu",
+                "Ngày"
+            ]
+        )
+        .reset_index(
+            drop=True
+        )
+    )
+
+
+# =============================================================================
+# UNIVERSAL DATA FUNCTION
+# =============================================================================
+
+def get_macro_dataset(
+    frequency,
+    countries,
+    indicators,
+    start_year,
+    end_year,
+    start_month=1,
+    end_month=12,
+    start_quarter=1,
+    end_quarter=4
+):
+
+
+    # =========================================================================
+    # ANNUAL
+    # =========================================================================
+
+    if frequency == "Theo năm":
+
+        return get_world_bank_annual(
+            countries,
+            indicators,
+            start_year,
+            end_year
+        )
+
+
+    # =========================================================================
+    # MONTHLY
+    # =========================================================================
+
+    elif frequency == "Theo tháng":
+
+        start_date = pd.Timestamp(
+            year=int(start_year),
+            month=int(start_month),
+            day=1
+        )
+
+
+        end_date = (
+            pd.Timestamp(
+                year=int(end_year),
+                month=int(end_month),
+                day=1
+            )
+            + pd.offsets.MonthEnd(0)
+        )
+
+
+        return get_market_data(
+            indicators,
+            "Theo tháng",
+            start_date,
+            end_date
+        )
+
+
+    # =========================================================================
+    # QUARTERLY
+    # =========================================================================
+
+    else:
+
+        start_month_q = (
+            (int(start_quarter) - 1) * 3
+            + 1
+        )
+
+
+        end_month_q = (
+            int(end_quarter) * 3
+        )
+
+
+        start_date = pd.Timestamp(
+            year=int(start_year),
+            month=start_month_q,
+            day=1
+        )
+
+
+        end_date = (
+            pd.Timestamp(
+                year=int(end_year),
+                month=end_month_q,
+                day=1
+            )
+            + pd.offsets.MonthEnd(0)
+        )
+
+
+        return get_market_data(
+            indicators,
+            "Theo quý",
+            start_date,
+            end_date
+        )
+
+
+
+
+
+# =============================================================================
 # TAB 1 - MACRO DATA
 # =============================================================================
 
@@ -560,330 +1266,288 @@ def tab1():
     st.title("Dữ liệu vĩ mô")
 
     st.caption(
-        "Theo dõi và phân tích các chỉ tiêu kinh tế vĩ mô "
-        "theo tần suất năm hoặc tháng phục vụ Stress Test."
+        "Theo dõi các chỉ tiêu kinh tế vĩ mô và thị trường tài chính "
+        "theo tần suất tháng, quý hoặc năm."
     )
 
     st.divider()
 
 
     # =========================================================================
-    # COUNTRY
-    # =========================================================================
-
-    countries = {
-        "Việt Nam": "VNM",
-        "Hoa Kỳ": "USA",
-        "Trung Quốc": "CHN",
-        "Nhật Bản": "JPN",
-        "Hàn Quốc": "KOR",
-        "Singapore": "SGP",
-        "Thái Lan": "THA",
-        "Indonesia": "IDN",
-        "Malaysia": "MYS",
-        "Philippines": "PHL"
-    }
-
-
-    # =========================================================================
-    # ANNUAL INDICATORS
-    # =========================================================================
-
-    annual_indicators = {
-
-        "Tăng trưởng kinh tế": {
-
-            "Tăng trưởng GDP (%)":
-                "NY.GDP.MKTP.KD.ZG",
-
-            "GDP bình quân đầu người (USD)":
-                "NY.GDP.PCAP.CD",
-
-            "GDP (USD)":
-                "NY.GDP.MKTP.CD"
-        },
-
-
-        "Lạm phát & Giá cả": {
-
-            "Lạm phát CPI (%)":
-                "FP.CPI.TOTL.ZG",
-
-            "Chỉ số giá tiêu dùng CPI":
-                "FP.CPI.TOTL",
-
-            "GDP Deflator (%)":
-                "NY.GDP.DEFL.KD.ZG"
-        },
-
-
-        "Lãi suất & Tiền tệ": {
-
-            "Lãi suất cho vay (%)":
-                "FR.INR.LEND",
-
-            "Lãi suất tiền gửi (%)":
-                "FR.INR.DPST",
-
-            "Lãi suất thực (%)":
-                "FR.INR.RINR",
-
-            "Cung tiền rộng (% GDP)":
-                "FM.LBL.BMNY.GD.ZS"
-        },
-
-
-        "Tín dụng": {
-
-            "Tín dụng khu vực tư nhân (% GDP)":
-                "FS.AST.PRVT.GD.ZS",
-
-            "Tín dụng nội địa khu vực tư nhân (% GDP)":
-                "FS.AST.DOMS.GD.ZS"
-        },
-
-
-        "Lao động": {
-
-            "Tỷ lệ thất nghiệp (%)":
-                "SL.UEM.TOTL.ZS",
-
-            "Tỷ lệ tham gia lực lượng lao động (%)":
-                "SL.TLF.CACT.ZS"
-        },
-
-
-        "Khu vực đối ngoại": {
-
-            "Tài khoản vãng lai (% GDP)":
-                "BN.CAB.XOKA.GD.ZS",
-
-            "FDI ròng (% GDP)":
-                "BX.KLT.DINV.WD.GD.ZS",
-
-            "Dự trữ ngoại hối (USD)":
-                "FI.RES.TOTL.CD",
-
-            "Nợ nước ngoài (% GNI)":
-                "DT.DOD.DECT.GN.ZS"
-        }
-    }
-
-
-    # =========================================================================
-    # MONTHLY HIGH-FREQUENCY INDICATORS
-    # =========================================================================
-    #
-    # World Bank high-frequency series.
-    # Monthly availability differs by country.
-    #
-    # =========================================================================
-
-    monthly_indicators = {
-
-        "Tỷ giá & Thị trường": {
-
-            "Tỷ giá - giá trị cuối kỳ":
-                "DPANUSSPB",
-
-            "Tỷ giá - giá trị kỳ":
-                "DPANUSSPF"
-        }
-    }
-
-
-    # =========================================================================
-    # FILTER
+    # FREQUENCY
     # =========================================================================
 
     st.subheader("Bộ lọc dữ liệu")
 
 
-    col1, col2 = st.columns(2)
-
-
-    with col1:
-
-        selected_countries = st.multiselect(
-            "Quốc gia",
-            options=list(countries.keys()),
-            default=["Việt Nam"],
-            placeholder="Chọn quốc gia",
-            key="macro_country"
-        )
-
-
-    with col2:
-
-        report_frequency = st.selectbox(
-            "Tần suất báo cáo",
-            [
-                "Theo năm",
-                "Theo tháng"
-            ],
-            index=0,
-            key="macro_report_frequency"
-        )
-
-
-    # =========================================================================
-    # SELECT INDICATOR SET
-    # =========================================================================
-
-    if report_frequency == "Theo năm":
-
-        indicators = annual_indicators
-
-    else:
-
-        indicators = monthly_indicators
-
-
-    col_group, col_indicator = st.columns(2)
-
-
-    with col_group:
-
-        selected_group = st.selectbox(
-            "Nhóm chỉ tiêu",
-            options=list(indicators.keys()),
-            key=f"macro_group_{report_frequency}"
-        )
-
-
-    with col_indicator:
-
-        selected_indicator = st.selectbox(
-            "Chỉ tiêu",
-            options=list(
-                indicators[selected_group].keys()
-            ),
-            key=f"macro_indicator_{report_frequency}"
-        )
-
-
-    indicator_code = (
-        indicators[selected_group][selected_indicator]
+    frequency = st.selectbox(
+        "Tần suất báo cáo",
+        [
+            "Theo tháng",
+            "Theo quý",
+            "Theo năm"
+        ],
+        index=2,
+        key="tab1_frequency"
     )
 
 
     # =========================================================================
-    # PERIOD FILTER
+    # ANNUAL FILTER
+    # =========================================================================
+
+    if frequency == "Theo năm":
+
+        c1, c2, c3 = st.columns(3)
+
+
+        with c1:
+
+            selected_countries = st.multiselect(
+                "Quốc gia",
+                options=list(
+                    COUNTRIES.keys()
+                ),
+                default=[
+                    "Việt Nam"
+                ],
+                key="tab1_country_annual"
+            )
+
+
+        with c2:
+
+            selected_group = st.selectbox(
+                "Nhóm chỉ tiêu",
+                options=list(
+                    ANNUAL_INDICATORS.keys()
+                ),
+                key="tab1_group_annual"
+            )
+
+
+        with c3:
+
+            selected_indicator = st.selectbox(
+                "Chỉ tiêu",
+                options=list(
+                    ANNUAL_INDICATORS[
+                        selected_group
+                    ].keys()
+                ),
+                key="tab1_indicator_annual"
+            )
+
+
+        selected_indicators = [
+            selected_indicator
+        ]
+
+
+    # =========================================================================
+    # MONTHLY / QUARTERLY FILTER
+    # =========================================================================
+
+    else:
+
+        selected_countries = [
+            "Việt Nam"
+        ]
+
+
+        c1, c2 = st.columns(2)
+
+
+        with c1:
+
+            selected_group = st.selectbox(
+                "Nhóm chỉ tiêu",
+                options=list(
+                    MARKET_INDICATORS.keys()
+                ),
+                key=f"tab1_group_{frequency}"
+            )
+
+
+        with c2:
+
+            selected_indicator = st.selectbox(
+                "Chỉ tiêu",
+                options=list(
+                    MARKET_INDICATORS[
+                        selected_group
+                    ].keys()
+                ),
+                key=f"tab1_indicator_{frequency}"
+            )
+
+
+        selected_indicators = [
+            selected_indicator
+        ]
+
+
+    # =========================================================================
+    # PERIOD
     # =========================================================================
 
     current_year = datetime.now().year
     current_month = datetime.now().month
 
 
-    if report_frequency == "Theo năm":
+    # -------------------------------------------------------------------------
+    # YEAR
+    # -------------------------------------------------------------------------
 
-        col_start, col_end = st.columns(2)
+    if frequency == "Theo năm":
+
+        c1, c2 = st.columns(2)
 
 
-        with col_start:
+        with c1:
 
             start_year = st.number_input(
                 "Từ năm",
-                min_value=1960,
-                max_value=current_year,
-                value=2000,
-                step=1,
-                key="macro_start_year"
+                1960,
+                current_year,
+                2000,
+                key="tab1_start_year"
             )
 
 
-        with col_end:
+        with c2:
 
             end_year = st.number_input(
                 "Đến năm",
-                min_value=1960,
-                max_value=current_year,
-                value=current_year,
-                step=1,
-                key="macro_end_year"
+                1960,
+                current_year,
+                current_year,
+                key="tab1_end_year"
             )
 
 
-        if start_year > end_year:
-
-            st.error(
-                "Năm bắt đầu không được lớn hơn năm kết thúc."
-            )
-
-            return
+        start_month = 1
+        end_month = 12
+        start_quarter = 1
+        end_quarter = 4
 
 
-    else:
+    # -------------------------------------------------------------------------
+    # MONTH
+    # -------------------------------------------------------------------------
 
-        col1, col2, col3, col4 = st.columns(4)
+    elif frequency == "Theo tháng":
+
+        c1, c2, c3, c4 = (
+            st.columns(4)
+        )
 
 
-        with col1:
+        with c1:
 
             start_year = st.number_input(
                 "Từ năm",
-                min_value=1960,
-                max_value=current_year,
-                value=2015,
-                step=1,
-                key="macro_month_start_year"
+                2000,
+                current_year,
+                2015,
+                key="tab1_m_start_y"
             )
 
 
-        with col2:
+        with c2:
 
             start_month = st.selectbox(
                 "Từ tháng",
-                options=list(range(1, 13)),
+                range(1, 13),
                 index=0,
-                key="macro_start_month"
+                key="tab1_m_start_m"
             )
 
 
-        with col3:
+        with c3:
 
             end_year = st.number_input(
                 "Đến năm",
-                min_value=1960,
-                max_value=current_year,
-                value=current_year,
-                step=1,
-                key="macro_month_end_year"
+                2000,
+                current_year,
+                current_year,
+                key="tab1_m_end_y"
             )
 
 
-        with col4:
+        with c4:
 
             end_month = st.selectbox(
                 "Đến tháng",
-                options=list(range(1, 13)),
+                range(1, 13),
                 index=current_month - 1,
-                key="macro_end_month"
+                key="tab1_m_end_m"
             )
 
 
-        start_period_number = (
-            int(start_year) * 100
-            + int(start_month)
+        start_quarter = 1
+        end_quarter = 4
+
+
+    # -------------------------------------------------------------------------
+    # QUARTER
+    # -------------------------------------------------------------------------
+
+    else:
+
+        c1, c2, c3, c4 = (
+            st.columns(4)
         )
 
-        end_period_number = (
-            int(end_year) * 100
-            + int(end_month)
-        )
 
+        with c1:
 
-        if start_period_number > end_period_number:
-
-            st.error(
-                "Thời gian bắt đầu không được lớn hơn thời gian kết thúc."
+            start_year = st.number_input(
+                "Từ năm",
+                2000,
+                current_year,
+                2015,
+                key="tab1_q_start_y"
             )
 
-            return
+
+        with c2:
+
+            start_quarter = st.selectbox(
+                "Từ quý",
+                [1, 2, 3, 4],
+                index=0,
+                key="tab1_q_start_q"
+            )
+
+
+        with c3:
+
+            end_year = st.number_input(
+                "Đến năm",
+                2000,
+                current_year,
+                current_year,
+                key="tab1_q_end_y"
+            )
+
+
+        with c4:
+
+            end_quarter = st.selectbox(
+                "Đến quý",
+                [1, 2, 3, 4],
+                index=3,
+                key="tab1_q_end_q"
+            )
+
+
+        start_month = 1
+        end_month = 12
 
 
     # =========================================================================
-    # VALIDATE COUNTRY
+    # VALIDATION
     # =========================================================================
 
     if not selected_countries:
@@ -895,435 +1559,47 @@ def tab1():
         return
 
 
-    # =========================================================================
-    # DOWNLOAD FUNCTION
-    # =========================================================================
+    if start_year > end_year:
 
-    @st.cache_data(ttl=3600)
-    def get_world_bank_data(
-        countries_selected,
-        indicator_code,
-        frequency,
-        start_year,
-        end_year,
-        start_month=None,
-        end_month=None
-    ):
-
-        all_data = []
-
-
-        for country_name in countries_selected:
-
-            country_code = countries[
-                country_name
-            ]
-
-
-            url = (
-                "https://api.worldbank.org/v2/"
-                f"country/{country_code}/"
-                f"indicator/{indicator_code}"
-            )
-
-
-            # -----------------------------------------------------------------
-            # ANNUAL
-            # -----------------------------------------------------------------
-
-            if frequency == "Theo năm":
-
-                params = {
-                    "format": "json",
-                    "date":
-                        f"{int(start_year)}:{int(end_year)}",
-                    "per_page": 1000
-                }
-
-
-            # -----------------------------------------------------------------
-            # MONTHLY
-            # -----------------------------------------------------------------
-
-            else:
-
-                start_date = (
-                    f"{int(start_year)}"
-                    f"M{int(start_month):02d}"
-                )
-
-                end_date = (
-                    f"{int(end_year)}"
-                    f"M{int(end_month):02d}"
-                )
-
-
-                params = {
-                    "format": "json",
-                    "date":
-                        f"{start_date}:{end_date}",
-                    "frequency": "M",
-                    "per_page": 5000
-                }
-
-
-            response = requests.get(
-                url,
-                params=params,
-                timeout=30
-            )
-
-            response.raise_for_status()
-
-            data = response.json()
-
-
-            if (
-                not isinstance(data, list)
-                or len(data) < 2
-                or data[1] is None
-            ):
-
-                continue
-
-
-            # -----------------------------------------------------------------
-            # RECORDS
-            # -----------------------------------------------------------------
-
-            for item in data[1]:
-
-                raw_date = str(
-                    item.get(
-                        "date",
-                        ""
-                    )
-                )
-
-                value = item.get(
-                    "value"
-                )
-
-
-                if value is None:
-
-                    continue
-
-
-                # =============================================================
-                # ANNUAL
-                # =============================================================
-
-                if frequency == "Theo năm":
-
-                    try:
-
-                        year = int(
-                            raw_date
-                        )
-
-                    except Exception:
-
-                        continue
-
-
-                    all_data.append(
-                        {
-                            "Quốc gia":
-                                country_name,
-
-                            "Mã quốc gia":
-                                country_code,
-
-                            "Thời gian":
-                                str(year),
-
-                            "Năm":
-                                year,
-
-                            "Giá trị":
-                                value
-                        }
-                    )
-
-
-                # =============================================================
-                # MONTHLY
-                # =============================================================
-
-                else:
-
-                    year = None
-                    month = None
-
-
-                    try:
-
-                        if "M" in raw_date:
-
-                            year_part, month_part = (
-                                raw_date.split(
-                                    "M"
-                                )
-                            )
-
-                            year = int(
-                                year_part
-                            )
-
-                            month = int(
-                                month_part
-                            )
-
-
-                        elif "-" in raw_date:
-
-                            parts = (
-                                raw_date.split(
-                                    "-"
-                                )
-                            )
-
-                            year = int(
-                                parts[0]
-                            )
-
-                            month = int(
-                                parts[1]
-                            )
-
-
-                    except Exception:
-
-                        continue
-
-
-                    if (
-                        year is None
-                        or month is None
-                    ):
-
-                        continue
-
-
-                    all_data.append(
-                        {
-                            "Quốc gia":
-                                country_name,
-
-                            "Mã quốc gia":
-                                country_code,
-
-                            "Thời gian":
-                                f"{year}-{month:02d}",
-
-                            "Năm":
-                                year,
-
-                            "Tháng":
-                                month,
-
-                            "Giá trị":
-                                value
-                        }
-                    )
-
-
-        # =========================================================================
-        # DATAFRAME
-        # =========================================================================
-
-        df = pd.DataFrame(
-            all_data
+        st.error(
+            "Thời gian bắt đầu không hợp lệ."
         )
 
-
-        if df.empty:
-
-            return df
-
-
-        df["Giá trị"] = pd.to_numeric(
-            df["Giá trị"],
-            errors="coerce"
-        )
-
-
-        df = df.dropna(
-            subset=[
-                "Giá trị"
-            ]
-        )
-
-
-        # ---------------------------------------------------------------------
-        # DATE
-        # ---------------------------------------------------------------------
-
-        if frequency == "Theo năm":
-
-            df["Ngày"] = pd.to_datetime(
-                df["Năm"].astype(str)
-                + "-01-01",
-                errors="coerce"
-            )
-
-
-        else:
-
-            df["Ngày"] = pd.to_datetime(
-                df["Thời gian"]
-                + "-01",
-                errors="coerce"
-            )
-
-
-        df = df.dropna(
-            subset=[
-                "Ngày"
-            ]
-        )
-
-
-        df = df.sort_values(
-            [
-                "Quốc gia",
-                "Ngày"
-            ]
-        ).reset_index(
-            drop=True
-        )
-
-
-        return df
+        return
 
 
     # =========================================================================
     # LOAD
     # =========================================================================
 
-    try:
+    with st.spinner(
+        "Đang tải dữ liệu..."
+    ):
 
-        with st.spinner(
-            "Đang tải dữ liệu từ World Bank..."
-        ):
-
-            if report_frequency == "Theo năm":
-
-                df = get_world_bank_data(
-                    selected_countries,
-                    indicator_code,
-                    report_frequency,
-                    int(start_year),
-                    int(end_year)
-                )
-
-
-            else:
-
-                df = get_world_bank_data(
-                    selected_countries,
-                    indicator_code,
-                    report_frequency,
-                    int(start_year),
-                    int(end_year),
-                    int(start_month),
-                    int(end_month)
-                )
-
-
-    except requests.exceptions.RequestException as e:
-
-        st.error(
-            "Không thể kết nối đến World Bank API."
+        df = get_macro_dataset(
+            frequency,
+            selected_countries,
+            selected_indicators,
+            start_year,
+            end_year,
+            start_month,
+            end_month,
+            start_quarter,
+            end_quarter
         )
 
-        st.caption(
-            str(e)
-        )
-
-        return
-
-
-    except Exception as e:
-
-        st.error(
-            "Có lỗi xảy ra trong quá trình xử lý dữ liệu."
-        )
-
-        st.caption(
-            str(e)
-        )
-
-        return
-
-
-    # =========================================================================
-    # EMPTY DATA
-    # =========================================================================
 
     if df.empty:
 
         st.warning(
-            f"Không tìm thấy dữ liệu {report_frequency.lower()} "
-            f"cho chỉ tiêu '{selected_indicator}' "
-            f"trong giai đoạn đã chọn."
+            "Không tìm thấy dữ liệu phù hợp."
         )
-
-
-        if report_frequency == "Theo tháng":
-
-            st.caption(
-                "Không phải tất cả chỉ tiêu và quốc gia đều có "
-                "dữ liệu tần suất tháng trên World Bank."
-            )
-
 
         return
 
 
     # =========================================================================
-    # FORMAT VALUE
-    # =========================================================================
-
-    def format_value(value):
-
-        if pd.isna(value):
-
-            return "N/A"
-
-
-        if abs(value) >= 1_000_000_000_000:
-
-            return (
-                f"{value / 1_000_000_000_000:,.2f} "
-                "nghìn tỷ"
-            )
-
-
-        elif abs(value) >= 1_000_000_000:
-
-            return (
-                f"{value / 1_000_000_000:,.2f} "
-                "tỷ"
-            )
-
-
-        elif abs(value) >= 1_000_000:
-
-            return (
-                f"{value / 1_000_000:,.2f} "
-                "triệu"
-            )
-
-
-        else:
-
-            return f"{value:,.2f}"
-
-
-    # =========================================================================
-    # KPI / REPORT SUMMARY
+    # SUMMARY
     # =========================================================================
 
     st.subheader(
@@ -1331,312 +1607,133 @@ def tab1():
     )
 
 
-    # =========================================================================
-    # SINGLE COUNTRY -> KPI
-    # =========================================================================
+    # -------------------------------------------------------------------------
+    # ONE SERIES
+    # -------------------------------------------------------------------------
 
-    if len(selected_countries) == 1:
+    series_df = (
+        df[
+            df["Chỉ tiêu"]
+            == selected_indicator
+        ]
+        .sort_values("Ngày")
+    )
 
-        country_name = (
-            selected_countries[0]
+
+    latest = (
+        series_df.iloc[-1]
+    )
+
+
+    latest_value = (
+        latest["Giá trị"]
+    )
+
+
+    latest_period = (
+        latest["Thời gian"]
+    )
+
+
+    if len(series_df) >= 2:
+
+        previous = (
+            series_df.iloc[-2]
         )
 
 
-        country_df = df[
-            df["Quốc gia"]
-            == country_name
-        ].copy()
-
-
-        country_df = (
-            country_df
-            .sort_values(
-                "Ngày"
-            )
-            .reset_index(
-                drop=True
-            )
+        previous_value = (
+            previous["Giá trị"]
         )
 
 
-        latest_row = (
-            country_df.iloc[-1]
+        absolute_change = (
+            latest_value
+            - previous_value
         )
 
 
-        latest_value = (
-            latest_row["Giá trị"]
-        )
-
-
-        latest_period = (
-            latest_row["Thời gian"]
-        )
-
-
-        # ---------------------------------------------------------------------
-        # PREVIOUS PERIOD
-        # ---------------------------------------------------------------------
-
-        if len(country_df) >= 2:
-
-            previous_row = (
-                country_df.iloc[-2]
-            )
-
-            previous_value = (
-                previous_row["Giá trị"]
-            )
-
-            previous_period = (
-                previous_row["Thời gian"]
-            )
-
-
-            absolute_change = (
+        percentage_change = (
+            (
                 latest_value
-                - previous_value
+                / previous_value
+                - 1
             )
+            * 100
 
+            if previous_value != 0
 
-            if previous_value != 0:
-
-                percentage_change = (
-                    absolute_change
-                    / abs(
-                        previous_value
-                    )
-                    * 100
-                )
-
-            else:
-
-                percentage_change = (
-                    np.nan
-                )
-
-
-        else:
-
-            previous_value = np.nan
-            previous_period = None
-            absolute_change = np.nan
-            percentage_change = np.nan
-
-
-        # ---------------------------------------------------------------------
-        # STATISTICS
-        # ---------------------------------------------------------------------
-
-        historical_average = (
-            country_df[
-                "Giá trị"
-            ].mean()
+            else np.nan
         )
 
-
-        volatility = (
-            country_df[
-                "Giá trị"
-            ].std()
-        )
-
-
-        historical_min = (
-            country_df[
-                "Giá trị"
-            ].min()
-        )
-
-
-        historical_max = (
-            country_df[
-                "Giá trị"
-            ].max()
-        )
-
-
-        kpi1, kpi2, kpi3, kpi4 = (
-            st.columns(4)
-        )
-
-
-        with kpi1:
-
-            st.metric(
-                label=(
-                    f"Giá trị mới nhất "
-                    f"({latest_period})"
-                ),
-                value=format_value(
-                    latest_value
-                )
-            )
-
-
-        with kpi2:
-
-            if pd.notna(
-                absolute_change
-            ):
-
-                st.metric(
-                    label=(
-                        "Thay đổi so với "
-                        f"{previous_period}"
-                    ),
-
-                    value=format_value(
-                        absolute_change
-                    ),
-
-                    delta=(
-                        f"{percentage_change:+.2f}%"
-                        if pd.notna(
-                            percentage_change
-                        )
-                        else None
-                    )
-                )
-
-
-            else:
-
-                st.metric(
-                    "Thay đổi kỳ trước",
-                    "N/A"
-                )
-
-
-        with kpi3:
-
-            st.metric(
-                "Trung bình giai đoạn",
-                format_value(
-                    historical_average
-                )
-            )
-
-
-        with kpi4:
-
-            st.metric(
-                "Độ biến động",
-                format_value(
-                    volatility
-                )
-            )
-
-
-    # =========================================================================
-    # MULTI COUNTRY -> COMPARISON TABLE
-    # =========================================================================
 
     else:
 
-        comparison_records = []
+        absolute_change = np.nan
+        percentage_change = np.nan
 
 
-        for country in (
-            selected_countries
-        ):
-
-            country_df = df[
-                df["Quốc gia"]
-                == country
-            ].copy()
+    historical_average = (
+        series_df["Giá trị"].mean()
+    )
 
 
-            country_df = (
-                country_df
-                .sort_values(
-                    "Ngày"
-                )
+    volatility = (
+        series_df["Giá trị"].std()
+    )
+
+
+    k1, k2, k3, k4 = (
+        st.columns(4)
+    )
+
+
+    with k1:
+
+        st.metric(
+            f"Giá trị mới nhất ({latest_period})",
+            format_macro_value(
+                latest_value
             )
-
-
-            if country_df.empty:
-
-                continue
-
-
-            latest = (
-                country_df.iloc[-1]
-            )
-
-
-            if len(
-                country_df
-            ) >= 2:
-
-                previous = (
-                    country_df.iloc[-2]
-                )
-
-
-                period_change = (
-                    (
-                        latest["Giá trị"]
-                        / previous["Giá trị"]
-                        - 1
-                    )
-                    * 100
-                    if previous["Giá trị"]
-                    != 0
-                    else np.nan
-                )
-
-
-            else:
-
-                period_change = np.nan
-
-
-            comparison_records.append(
-                {
-                    "Quốc gia":
-                        country,
-
-                    "Kỳ mới nhất":
-                        latest[
-                            "Thời gian"
-                        ],
-
-                    "Giá trị mới nhất":
-                        latest[
-                            "Giá trị"
-                        ],
-
-                    (
-                        "YoY (%)"
-                        if report_frequency
-                        == "Theo năm"
-                        else "MoM (%)"
-                    ):
-                        period_change,
-
-                    "Trung bình":
-                        country_df[
-                            "Giá trị"
-                        ].mean(),
-
-                    "Độ biến động":
-                        country_df[
-                            "Giá trị"
-                        ].std()
-                }
-            )
-
-
-        comparison_df = pd.DataFrame(
-            comparison_records
         )
 
 
-        st.dataframe(
-            comparison_df,
-            use_container_width=True,
-            hide_index=True
+    with k2:
+
+        st.metric(
+            "Thay đổi kỳ trước",
+
+            format_macro_value(
+                absolute_change
+            ),
+
+            (
+                f"{percentage_change:+.2f}%"
+                if pd.notna(
+                    percentage_change
+                )
+                else None
+            )
+        )
+
+
+    with k3:
+
+        st.metric(
+            "Trung bình giai đoạn",
+            format_macro_value(
+                historical_average
+            )
+        )
+
+
+    with k4:
+
+        st.metric(
+            "Độ biến động",
+            format_macro_value(
+                volatility
+            )
         )
 
 
@@ -1652,101 +1749,60 @@ def tab1():
     fig = go.Figure()
 
 
-    for country in selected_countries:
+    # Annual supports multiple countries
+    if frequency == "Theo năm":
 
-        country_df = df[
-            df["Quốc gia"]
-            == country
-        ].copy()
+        groups = (
+            df.groupby("Quốc gia")
+        )
 
 
-        if country_df.empty:
+        for country, temp in groups:
 
-            continue
+            fig.add_trace(
+                go.Scatter(
+                    x=temp["Ngày"],
+                    y=temp["Giá trị"],
+                    mode="lines+markers",
+                    name=country
+                )
+            )
 
+
+    else:
 
         fig.add_trace(
             go.Scatter(
-                x=country_df[
-                    "Ngày"
-                ],
-
-                y=country_df[
-                    "Giá trị"
-                ],
-
+                x=series_df["Ngày"],
+                y=series_df["Giá trị"],
                 mode=(
-                    "lines+markers"
-                    if report_frequency
-                    == "Theo năm"
-                    else "lines"
+                    "lines"
+                    if frequency == "Theo tháng"
+                    else "lines+markers"
                 ),
-
-                name=country,
-
-                hovertemplate=(
-                    f"<b>{country}</b><br>"
-                    "Kỳ: %{x|%Y-%m}<br>"
-                    "Giá trị: %{y:,.2f}"
-                    "<extra></extra>"
-                )
+                name=selected_indicator
             )
         )
 
 
     fig.update_layout(
-
         template="plotly_dark",
-
         height=520,
-
+        paper_bgcolor="#0E0E0E",
+        plot_bgcolor="#0E0E0E",
+        hovermode="x unified",
+        xaxis_title=frequency.replace(
+            "Theo ",
+            ""
+        ),
+        yaxis_title=selected_indicator,
         margin=dict(
             l=20,
             r=20,
             t=30,
             b=20
-        ),
-
-        xaxis_title=(
-            "Năm"
-            if report_frequency
-            == "Theo năm"
-            else "Tháng"
-        ),
-
-        yaxis_title=selected_indicator,
-
-        hovermode="x unified",
-
-        paper_bgcolor="#0E0E0E",
-
-        plot_bgcolor="#0E0E0E",
-
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="left",
-            x=0
         )
     )
-
-
-    if report_frequency == "Theo năm":
-
-        fig.update_xaxes(
-            dtick="M12",
-            tickformat="%Y",
-            showgrid=False
-        )
-
-
-    else:
-
-        fig.update_xaxes(
-            tickformat="%m/%Y",
-            showgrid=False
-        )
 
 
     fig.update_yaxes(
@@ -1764,60 +1820,62 @@ def tab1():
     # HISTORICAL STATISTICS
     # =========================================================================
 
-    if len(selected_countries) == 1:
+    st.subheader(
+        "Thống kê lịch sử"
+    )
 
-        st.subheader(
-            "Thống kê lịch sử"
+
+    s1, s2, s3, s4 = (
+        st.columns(4)
+    )
+
+
+    with s1:
+
+        st.metric(
+            "Thấp nhất",
+            format_macro_value(
+                series_df[
+                    "Giá trị"
+                ].min()
+            )
         )
 
 
-        stat1, stat2, stat3, stat4 = (
-            st.columns(4)
+    with s2:
+
+        st.metric(
+            "Cao nhất",
+            format_macro_value(
+                series_df[
+                    "Giá trị"
+                ].max()
+            )
         )
 
 
-        with stat1:
+    with s3:
 
-            st.metric(
-                "Thấp nhất",
-                format_value(
-                    historical_min
-                )
+        st.metric(
+            "Trung bình",
+            format_macro_value(
+                historical_average
             )
+        )
 
 
-        with stat2:
+    with s4:
 
-            st.metric(
-                "Cao nhất",
-                format_value(
-                    historical_max
-                )
+        st.metric(
+            "Độ lệch chuẩn",
+            format_macro_value(
+                volatility
             )
-
-
-        with stat3:
-
-            st.metric(
-                "Trung bình",
-                format_value(
-                    historical_average
-                )
-            )
-
-
-        with stat4:
-
-            st.metric(
-                "Độ lệch chuẩn",
-                format_value(
-                    volatility
-                )
-            )
+        )
 
 
     # =========================================================================
-    # DETAIL DATA
+    # DETAIL
     # =========================================================================
 
     st.subheader(
@@ -1825,18 +1883,11 @@ def tab1():
     )
 
 
-    display_df = df.copy()
-
-
-    # -------------------------------------------------------------------------
-    # PERIOD CHANGE
-    # -------------------------------------------------------------------------
-
     display_df = (
-        display_df
+        df.copy()
         .sort_values(
             [
-                "Quốc gia",
+                "Chỉ tiêu",
                 "Ngày"
             ]
         )
@@ -1844,12 +1895,15 @@ def tab1():
 
 
     display_df[
-        "Thay đổi (%)"
+        "Thay đổi kỳ trước (%)"
     ] = (
 
         display_df
         .groupby(
-            "Quốc gia"
+            [
+                "Quốc gia",
+                "Chỉ tiêu"
+            ]
         )["Giá trị"]
         .pct_change()
         * 100
@@ -1857,102 +1911,28 @@ def tab1():
     )
 
 
-    display_df[
-        "Thay đổi (%)"
-    ] = (
-
-        display_df[
-            "Thay đổi (%)"
-        ]
-        .round(2)
-
-    )
-
-
-    display_df[
-        "Giá trị"
-    ] = (
-
-        display_df[
-            "Giá trị"
-        ]
-        .round(4)
-
-    )
-
-
     display_df = (
         display_df
         .sort_values(
-            [
-                "Quốc gia",
-                "Ngày"
-            ],
-            ascending=[
-                True,
-                False
-            ]
+            "Ngày",
+            ascending=False
         )
     )
-
-
-    # -------------------------------------------------------------------------
-    # COLUMN SELECTION
-    # -------------------------------------------------------------------------
-
-    if report_frequency == "Theo năm":
-
-        display_columns = [
-            "Quốc gia",
-            "Mã quốc gia",
-            "Năm",
-            "Giá trị",
-            "Thay đổi (%)"
-        ]
-
-        change_label = (
-            "Thay đổi so với năm trước (%)"
-        )
-
-
-    else:
-
-        display_columns = [
-            "Quốc gia",
-            "Mã quốc gia",
-            "Thời gian",
-            "Giá trị",
-            "Thay đổi (%)"
-        ]
-
-        change_label = (
-            "Thay đổi so với tháng trước (%)"
-        )
 
 
     st.dataframe(
         display_df[
-            display_columns
+            [
+                "Quốc gia",
+                "Thời gian",
+                "Chỉ tiêu",
+                "Giá trị",
+                "Thay đổi kỳ trước (%)",
+                "Nguồn"
+            ]
         ],
-
         use_container_width=True,
-
-        hide_index=True,
-
-        column_config={
-
-            "Giá trị":
-                st.column_config.NumberColumn(
-                    selected_indicator,
-                    format="%.4f"
-                ),
-
-            "Thay đổi (%)":
-                st.column_config.NumberColumn(
-                    change_label,
-                    format="%.2f%%"
-                )
-        }
+        hide_index=True
     )
 
 
@@ -1960,131 +1940,11 @@ def tab1():
     # DOWNLOAD
     # =========================================================================
 
-    st.subheader(
-        "Tải dữ liệu"
-    )
-
-
-    export_df = (
-        display_df.copy()
-    )
-
-
-    export_df[
-        "Nhóm chỉ tiêu"
-    ] = selected_group
-
-
-    export_df[
-        "Chỉ tiêu"
-    ] = selected_indicator
-
-
-    export_df[
-        "Mã chỉ tiêu"
-    ] = indicator_code
-
-
-    export_df[
-        "Tần suất"
-    ] = (
-        "Năm"
-        if report_frequency
-        == "Theo năm"
-        else "Tháng"
-    )
-
-
-    export_df[
-        "Nguồn"
-    ] = "World Bank"
-
-
-    # -------------------------------------------------------------------------
-    # EXPORT COLUMNS
-    # -------------------------------------------------------------------------
-
-    if report_frequency == "Theo năm":
-
-        export_columns = [
-            "Quốc gia",
-            "Mã quốc gia",
-            "Năm",
-            "Nhóm chỉ tiêu",
-            "Chỉ tiêu",
-            "Mã chỉ tiêu",
-            "Tần suất",
-            "Giá trị",
-            "Thay đổi (%)",
-            "Nguồn"
-        ]
-
-
-    else:
-
-        export_columns = [
-            "Quốc gia",
-            "Mã quốc gia",
-            "Thời gian",
-            "Năm",
-            "Tháng",
-            "Nhóm chỉ tiêu",
-            "Chỉ tiêu",
-            "Mã chỉ tiêu",
-            "Tần suất",
-            "Giá trị",
-            "Thay đổi (%)",
-            "Nguồn"
-        ]
-
-
-    export_df = export_df[
-        export_columns
-    ]
-
-
-    # =========================================================================
-    # FILE NAME
-    # =========================================================================
-
-    if len(selected_countries) == 1:
-
-        file_country = countries[
-            selected_countries[0]
-        ]
-
-    else:
-
-        file_country = (
-            "MULTI_COUNTRY"
+    csv = (
+        display_df
+        .drop(
+            columns=["Ngày"]
         )
-
-
-    file_frequency = (
-        "ANNUAL"
-        if report_frequency
-        == "Theo năm"
-        else "MONTHLY"
-    )
-
-
-    file_name_base = (
-
-        f"{file_country}_"
-        f"{indicator_code}_"
-        f"{file_frequency}_"
-        f"{int(start_year)}_"
-        f"{int(end_year)}"
-
-    )
-
-
-    # =========================================================================
-    # CSV
-    # =========================================================================
-
-    csv_data = (
-        export_df
         .to_csv(
             index=False
         )
@@ -2094,93 +1954,24 @@ def tab1():
     )
 
 
-    # =========================================================================
-    # EXCEL
-    # =========================================================================
-
-    excel_buffer = BytesIO()
-
-
-    with pd.ExcelWriter(
-        excel_buffer,
-        engine="openpyxl"
-    ) as writer:
-
-        export_df.to_excel(
-            writer,
-            index=False,
-            sheet_name="Macro Data"
-        )
-
-
-    excel_data = (
-        excel_buffer
-        .getvalue()
+    st.download_button(
+        "Tải dữ liệu CSV",
+        csv,
+        file_name=(
+            f"MACRO_{frequency}_"
+            f"{selected_indicator}.csv"
+            .replace("/", "_")
+            .replace(" ", "_")
+        ),
+        mime="text/csv",
+        use_container_width=True
     )
 
 
-    # =========================================================================
-    # DOWNLOAD BUTTON
-    # =========================================================================
-
-    col_csv, col_excel = (
-        st.columns(2)
+    st.caption(
+        f"Nguồn: {', '.join(df['Nguồn'].unique())} • "
+        f"Tần suất: {frequency.replace('Theo ', '')}"
     )
-
-
-    with col_csv:
-
-        st.download_button(
-            label="Tải dữ liệu CSV",
-            data=csv_data,
-            file_name=(
-                f"{file_name_base}.csv"
-            ),
-            mime="text/csv",
-            use_container_width=True
-        )
-
-
-    with col_excel:
-
-        st.download_button(
-            label="Tải dữ liệu Excel",
-            data=excel_data,
-            file_name=(
-                f"{file_name_base}.xlsx"
-            ),
-            mime=(
-                "application/vnd.openxmlformats-officedocument."
-                "spreadsheetml.sheet"
-            ),
-            use_container_width=True
-        )
-
-
-    # =========================================================================
-    # SOURCE
-    # =========================================================================
-
-    st.divider()
-
-
-    if report_frequency == "Theo năm":
-
-        st.caption(
-            f"Nguồn: World Bank • "
-            f"Tần suất: Năm • "
-            f"Chỉ tiêu: {indicator_code}"
-        )
-
-
-    else:
-
-        st.caption(
-            f"Nguồn: World Bank High-Frequency Data • "
-            f"Tần suất: Tháng • "
-            f"Chỉ tiêu: {indicator_code}. "
-            "Mức độ sẵn có dữ liệu có thể khác nhau theo quốc gia."
-        )
 
 
 # =============================================================================
@@ -2192,292 +1983,237 @@ def tab2():
     st.title("Tải dữ liệu")
 
     st.caption(
-        "Lựa chọn nhiều quốc gia, nhiều chỉ tiêu và tần suất dữ liệu "
-        "để xây dựng bộ dữ liệu phục vụ phân tích và Stress Test."
+        "Tạo bộ dữ liệu vĩ mô theo tần suất tháng, quý hoặc năm "
+        "để phục vụ phân tích và Stress Test."
     )
 
     st.divider()
 
 
     # =========================================================================
-    # DANH MỤC QUỐC GIA
+    # FREQUENCY
     # =========================================================================
 
-    countries = {
-        "Việt Nam": "VNM",
-        "Hoa Kỳ": "USA",
-        "Trung Quốc": "CHN",
-        "Nhật Bản": "JPN",
-        "Hàn Quốc": "KOR",
-        "Singapore": "SGP",
-        "Thái Lan": "THA",
-        "Indonesia": "IDN",
-        "Malaysia": "MYS",
-        "Philippines": "PHL"
-    }
-
-
-    # =========================================================================
-    # CHỈ TIÊU THEO NĂM
-    # =========================================================================
-
-    annual_indicators = {
-
-        "Tăng trưởng GDP (%)":
-            "NY.GDP.MKTP.KD.ZG",
-
-        "GDP (USD)":
-            "NY.GDP.MKTP.CD",
-
-        "GDP bình quân đầu người (USD)":
-            "NY.GDP.PCAP.CD",
-
-        "Lạm phát CPI (%)":
-            "FP.CPI.TOTL.ZG",
-
-        "Chỉ số giá tiêu dùng CPI":
-            "FP.CPI.TOTL",
-
-        "GDP Deflator (%)":
-            "NY.GDP.DEFL.KD.ZG",
-
-        "Lãi suất cho vay (%)":
-            "FR.INR.LEND",
-
-        "Lãi suất tiền gửi (%)":
-            "FR.INR.DPST",
-
-        "Lãi suất thực (%)":
-            "FR.INR.RINR",
-
-        "Cung tiền rộng (% GDP)":
-            "FM.LBL.BMNY.GD.ZS",
-
-        "Tín dụng khu vực tư nhân (% GDP)":
-            "FS.AST.PRVT.GD.ZS",
-
-        "Tỷ lệ thất nghiệp (%)":
-            "SL.UEM.TOTL.ZS",
-
-        "Tỷ lệ tham gia lực lượng lao động (%)":
-            "SL.TLF.CACT.ZS",
-
-        "Tài khoản vãng lai (% GDP)":
-            "BN.CAB.XOKA.GD.ZS",
-
-        "FDI ròng (% GDP)":
-            "BX.KLT.DINV.WD.GD.ZS",
-
-        "Dự trữ ngoại hối (USD)":
-            "FI.RES.TOTL.CD",
-
-        "Nợ nước ngoài (% GNI)":
-            "DT.DOD.DECT.GN.ZS"
-    }
-
-
-    # =========================================================================
-    # CHỈ TIÊU THEO THÁNG
-    # =========================================================================
-    #
-    # Chỉ sử dụng các chuỗi high-frequency phù hợp.
-    # Không ép dữ liệu annual thành monthly.
-    #
-    # =========================================================================
-
-    monthly_indicators = {
-
-        "Tỷ giá - giá trị cuối kỳ":
-            "DPANUSSPB",
-
-        "Tỷ giá - giá trị kỳ":
-            "DPANUSSPF"
-    }
-
-
-    # =========================================================================
-    # BỘ LỌC
-    # =========================================================================
-
-    st.subheader("Lựa chọn dữ liệu")
-
-
-    # =========================================================================
-    # ROW 1
-    # =========================================================================
-
-    col1, col2 = st.columns(2)
-
-
-    with col1:
-
-        selected_countries = st.multiselect(
-            "Quốc gia",
-            options=list(countries.keys()),
-            default=["Việt Nam"],
-            placeholder="Chọn quốc gia",
-            key="download_country_filter"
-        )
-
-
-    with col2:
-
-        report_frequency = st.selectbox(
-            "Tần suất báo cáo",
-            [
-                "Theo năm",
-                "Theo tháng"
-            ],
-            index=0,
-            key="download_report_frequency"
-        )
-
-
-    # =========================================================================
-    # CHỌN BỘ INDICATOR THEO FREQUENCY
-    # =========================================================================
-
-    if report_frequency == "Theo năm":
-
-        indicators = annual_indicators
-
-        default_indicators = [
-            "Tăng trưởng GDP (%)",
-            "Lạm phát CPI (%)"
-        ]
-
-    else:
-
-        indicators = monthly_indicators
-
-        default_indicators = [
-            "Tỷ giá - giá trị cuối kỳ"
-        ]
-
-
-    # =========================================================================
-    # INDICATOR FILTER
-    # =========================================================================
-
-    selected_indicators = st.multiselect(
-        "Chỉ tiêu kinh tế vĩ mô",
-        options=list(indicators.keys()),
-        default=default_indicators,
-        placeholder="Chọn một hoặc nhiều chỉ tiêu",
-        key=f"download_indicator_{report_frequency}"
+    frequency = st.selectbox(
+        "Tần suất dữ liệu",
+        [
+            "Theo tháng",
+            "Theo quý",
+            "Theo năm"
+        ],
+        index=2,
+        key="tab2_frequency"
     )
 
 
     # =========================================================================
-    # THỜI GIAN
+    # FILTER
     # =========================================================================
 
-    current_year = datetime.now().year
-    current_month = datetime.now().month
+    if frequency == "Theo năm":
+
+        selected_countries = st.multiselect(
+            "Quốc gia",
+            list(
+                COUNTRIES.keys()
+            ),
+            default=["Việt Nam"],
+            key="tab2_countries"
+        )
 
 
-    # =========================================================================
-    # ANNUAL FILTER
-    # =========================================================================
-
-    if report_frequency == "Theo năm":
-
-        col_start, col_end = st.columns(2)
-
-
-        with col_start:
-
-            start_year = st.number_input(
-                "Từ năm",
-                min_value=1960,
-                max_value=current_year,
-                value=2000,
-                step=1,
-                key="download_annual_start"
+        selected_indicators = (
+            st.multiselect(
+                "Chỉ tiêu",
+                list(
+                    ANNUAL_INDICATORS_FLAT.keys()
+                ),
+                default=[
+                    "Tăng trưởng GDP (%)",
+                    "Lạm phát CPI (%)"
+                ],
+                key="tab2_annual_indicators"
             )
+        )
 
-
-        with col_end:
-
-            end_year = st.number_input(
-                "Đến năm",
-                min_value=1960,
-                max_value=current_year,
-                value=current_year,
-                step=1,
-                key="download_annual_end"
-            )
-
-
-        start_month = None
-        end_month = None
-
-
-    # =========================================================================
-    # MONTHLY FILTER
-    # =========================================================================
 
     else:
 
-        col1, col2, col3, col4 = st.columns(4)
+        selected_countries = [
+            "Việt Nam"
+        ]
 
 
-        with col1:
+        selected_indicators = (
+            st.multiselect(
+                "Chỉ tiêu",
+                list(
+                    MARKET_INDICATORS_FLAT.keys()
+                ),
+                default=[
+                    "USD/VND",
+                    "VN-Index",
+                    "Giá dầu WTI",
+                    "Giá vàng"
+                ],
+                key=f"tab2_market_{frequency}"
+            )
+        )
+
+
+    # =========================================================================
+    # PERIOD
+    # =========================================================================
+
+    current_year = (
+        datetime.now().year
+    )
+
+    current_month = (
+        datetime.now().month
+    )
+
+
+    if frequency == "Theo năm":
+
+        c1, c2 = st.columns(2)
+
+
+        with c1:
 
             start_year = st.number_input(
                 "Từ năm",
-                min_value=1960,
-                max_value=current_year,
-                value=2015,
-                step=1,
-                key="download_month_start_year"
+                1960,
+                current_year,
+                2000,
+                key="tab2_a_sy"
             )
 
 
-        with col2:
-
-            start_month = st.selectbox(
-                "Từ tháng",
-                options=list(range(1, 13)),
-                index=0,
-                key="download_start_month"
-            )
-
-
-        with col3:
+        with c2:
 
             end_year = st.number_input(
                 "Đến năm",
-                min_value=1960,
-                max_value=current_year,
-                value=current_year,
-                step=1,
-                key="download_month_end_year"
+                1960,
+                current_year,
+                current_year,
+                key="tab2_a_ey"
             )
 
 
-        with col4:
+        start_month = 1
+        end_month = 12
+        start_quarter = 1
+        end_quarter = 4
+
+
+    elif frequency == "Theo tháng":
+
+        c1, c2, c3, c4 = (
+            st.columns(4)
+        )
+
+
+        with c1:
+
+            start_year = st.number_input(
+                "Từ năm",
+                2000,
+                current_year,
+                2015,
+                key="tab2_m_sy"
+            )
+
+
+        with c2:
+
+            start_month = st.selectbox(
+                "Từ tháng",
+                range(1, 13),
+                key="tab2_m_sm"
+            )
+
+
+        with c3:
+
+            end_year = st.number_input(
+                "Đến năm",
+                2000,
+                current_year,
+                current_year,
+                key="tab2_m_ey"
+            )
+
+
+        with c4:
 
             end_month = st.selectbox(
                 "Đến tháng",
-                options=list(range(1, 13)),
+                range(1, 13),
                 index=current_month - 1,
-                key="download_end_month"
+                key="tab2_m_em"
             )
 
 
-    # =========================================================================
-    # VALIDATION
-    # =========================================================================
+        start_quarter = 1
+        end_quarter = 4
 
-    if not selected_countries:
 
-        st.warning(
-            "Vui lòng chọn ít nhất một quốc gia."
+    else:
+
+        c1, c2, c3, c4 = (
+            st.columns(4)
         )
 
-        return
 
+        with c1:
+
+            start_year = st.number_input(
+                "Từ năm",
+                2000,
+                current_year,
+                2015,
+                key="tab2_q_sy"
+            )
+
+
+        with c2:
+
+            start_quarter = st.selectbox(
+                "Từ quý",
+                [1, 2, 3, 4],
+                key="tab2_q_sq"
+            )
+
+
+        with c3:
+
+            end_year = st.number_input(
+                "Đến năm",
+                2000,
+                current_year,
+                current_year,
+                key="tab2_q_ey"
+            )
+
+
+        with c4:
+
+            end_quarter = st.selectbox(
+                "Đến quý",
+                [1, 2, 3, 4],
+                index=3,
+                key="tab2_q_eq"
+            )
+
+
+        start_month = 1
+        end_month = 12
+
+
+    # =========================================================================
+    # VALIDATE
+    # =========================================================================
 
     if not selected_indicators:
 
@@ -2488,53 +2224,26 @@ def tab2():
         return
 
 
-    if int(start_year) > int(end_year):
+    if (
+        frequency == "Theo năm"
+        and not selected_countries
+    ):
 
-        st.error(
-            "Thời gian bắt đầu không được lớn hơn thời gian kết thúc."
+        st.warning(
+            "Vui lòng chọn ít nhất một quốc gia."
         )
 
         return
-
-
-    if report_frequency == "Theo tháng":
-
-        start_period = (
-            int(start_year) * 100
-            + int(start_month)
-        )
-
-        end_period = (
-            int(end_year) * 100
-            + int(end_month)
-        )
-
-
-        if start_period > end_period:
-
-            st.error(
-                "Tháng bắt đầu không được lớn hơn tháng kết thúc."
-            )
-
-            return
 
 
     # =========================================================================
     # SUMMARY
     # =========================================================================
 
-    info1, info2, info3 = st.columns(3)
+    a, b, c = st.columns(3)
 
 
-    with info1:
-
-        st.metric(
-            "Số quốc gia",
-            len(selected_countries)
-        )
-
-
-    with info2:
+    with a:
 
         st.metric(
             "Số chỉ tiêu",
@@ -2542,1051 +2251,380 @@ def tab2():
         )
 
 
-    with info3:
+    with b:
 
         st.metric(
             "Tần suất",
+            frequency.replace(
+                "Theo ",
+                ""
+            )
+        )
+
+
+    with c:
+
+        st.metric(
+            "Nguồn",
             (
-                "Năm"
-                if report_frequency == "Theo năm"
-                else "Tháng"
+                "World Bank"
+                if frequency == "Theo năm"
+                else "Yahoo Finance"
             )
         )
 
 
-    st.divider()
-
-
     # =========================================================================
-    # DOWNLOAD FUNCTION
-    # =========================================================================
-
-    @st.cache_data(ttl=3600)
-    def download_world_bank_dataset(
-        countries_selected,
-        indicators_selected,
-        frequency,
-        start_year,
-        end_year,
-        start_month=None,
-        end_month=None
-    ):
-
-        records = []
-
-
-        # ---------------------------------------------------------------------
-        # COUNTRY LOOP
-        # ---------------------------------------------------------------------
-
-        for country_name in countries_selected:
-
-            country_code = countries[
-                country_name
-            ]
-
-
-            # -----------------------------------------------------------------
-            # INDICATOR LOOP
-            # -----------------------------------------------------------------
-
-            for indicator_name in indicators_selected:
-
-                indicator_code = indicators[
-                    indicator_name
-                ]
-
-
-                url = (
-                    "https://api.worldbank.org/v2/"
-                    f"country/{country_code}/"
-                    f"indicator/{indicator_code}"
-                )
-
-
-                # =============================================================
-                # ANNUAL
-                # =============================================================
-
-                if frequency == "Theo năm":
-
-                    params = {
-                        "format": "json",
-                        "date":
-                            f"{int(start_year)}:{int(end_year)}",
-                        "per_page": 1000
-                    }
-
-
-                # =============================================================
-                # MONTHLY
-                # =============================================================
-
-                else:
-
-                    start_date = (
-                        f"{int(start_year)}"
-                        f"M{int(start_month):02d}"
-                    )
-
-                    end_date = (
-                        f"{int(end_year)}"
-                        f"M{int(end_month):02d}"
-                    )
-
-
-                    params = {
-                        "format": "json",
-                        "date":
-                            f"{start_date}:{end_date}",
-                        "frequency": "M",
-                        "per_page": 5000
-                    }
-
-
-                # =============================================================
-                # REQUEST
-                # =============================================================
-
-                try:
-
-                    response = requests.get(
-                        url,
-                        params=params,
-                        timeout=30
-                    )
-
-
-                    response.raise_for_status()
-
-
-                    data = response.json()
-
-
-                    if (
-                        not isinstance(data, list)
-                        or len(data) < 2
-                        or data[1] is None
-                    ):
-
-                        continue
-
-
-                    # =========================================================
-                    # RECORDS
-                    # =========================================================
-
-                    for item in data[1]:
-
-                        raw_date = str(
-                            item.get(
-                                "date",
-                                ""
-                            )
-                        )
-
-
-                        value = item.get(
-                            "value"
-                        )
-
-
-                        if value is None:
-
-                            continue
-
-
-                        # -----------------------------------------------------
-                        # ANNUAL
-                        # -----------------------------------------------------
-
-                        if frequency == "Theo năm":
-
-                            try:
-
-                                year = int(
-                                    raw_date
-                                )
-
-                            except Exception:
-
-                                continue
-
-
-                            records.append(
-                                {
-                                    "Quốc gia":
-                                        country_name,
-
-                                    "Mã quốc gia":
-                                        country_code,
-
-                                    "Thời gian":
-                                        str(year),
-
-                                    "Năm":
-                                        year,
-
-                                    "Tần suất":
-                                        "Năm",
-
-                                    "Chỉ tiêu":
-                                        indicator_name,
-
-                                    "Mã chỉ tiêu":
-                                        indicator_code,
-
-                                    "Giá trị":
-                                        value,
-
-                                    "Nguồn":
-                                        "World Bank"
-                                }
-                            )
-
-
-                        # -----------------------------------------------------
-                        # MONTHLY
-                        # -----------------------------------------------------
-
-                        else:
-
-                            year = None
-                            month = None
-
-
-                            try:
-
-                                if "M" in raw_date:
-
-                                    year_text, month_text = (
-                                        raw_date.split(
-                                            "M"
-                                        )
-                                    )
-
-
-                                    year = int(
-                                        year_text
-                                    )
-
-
-                                    month = int(
-                                        month_text
-                                    )
-
-
-                                elif "-" in raw_date:
-
-                                    parts = (
-                                        raw_date.split(
-                                            "-"
-                                        )
-                                    )
-
-
-                                    year = int(
-                                        parts[0]
-                                    )
-
-
-                                    month = int(
-                                        parts[1]
-                                    )
-
-
-                            except Exception:
-
-                                continue
-
-
-                            if (
-                                year is None
-                                or month is None
-                            ):
-
-                                continue
-
-
-                            records.append(
-                                {
-                                    "Quốc gia":
-                                        country_name,
-
-                                    "Mã quốc gia":
-                                        country_code,
-
-                                    "Thời gian":
-                                        f"{year}-{month:02d}",
-
-                                    "Năm":
-                                        year,
-
-                                    "Tháng":
-                                        month,
-
-                                    "Tần suất":
-                                        "Tháng",
-
-                                    "Chỉ tiêu":
-                                        indicator_name,
-
-                                    "Mã chỉ tiêu":
-                                        indicator_code,
-
-                                    "Giá trị":
-                                        value,
-
-                                    "Nguồn":
-                                        "World Bank"
-                                }
-                            )
-
-
-                except Exception:
-
-                    continue
-
-
-        # =========================================================================
-        # DATAFRAME
-        # =========================================================================
-
-        df = pd.DataFrame(
-            records
-        )
-
-
-        if df.empty:
-
-            return df
-
-
-        df["Giá trị"] = pd.to_numeric(
-            df["Giá trị"],
-            errors="coerce"
-        )
-
-
-        df = df.dropna(
-            subset=[
-                "Giá trị"
-            ]
-        )
-
-
-        # ---------------------------------------------------------------------
-        # DATE COLUMN
-        # ---------------------------------------------------------------------
-
-        if frequency == "Theo năm":
-
-            df["Ngày"] = pd.to_datetime(
-                df["Năm"].astype(str)
-                + "-01-01",
-                errors="coerce"
-            )
-
-
-        else:
-
-            df["Ngày"] = pd.to_datetime(
-                df["Thời gian"]
-                + "-01",
-                errors="coerce"
-            )
-
-
-        df = df.dropna(
-            subset=[
-                "Ngày"
-            ]
-        )
-
-
-        df = df.sort_values(
-            [
-                "Quốc gia",
-                "Chỉ tiêu",
-                "Ngày"
-            ]
-        ).reset_index(
-            drop=True
-        )
-
-
-        return df
-
-
-    # =========================================================================
-    # DOWNLOAD BUTTON
+    # LOAD BUTTON
     # =========================================================================
 
     if st.button(
-        "Tải dữ liệu từ World Bank",
+        "Tải dữ liệu",
         type="primary",
         use_container_width=True,
-        key="download_world_bank_button"
+        key="tab2_load"
     ):
 
-        try:
 
-            with st.spinner(
-                "Đang tải và tổng hợp dữ liệu..."
-            ):
-
-
-                if report_frequency == "Theo năm":
-
-                    download_df = download_world_bank_dataset(
-                        selected_countries,
-                        selected_indicators,
-                        report_frequency,
-                        int(start_year),
-                        int(end_year)
-                    )
-
-
-                else:
-
-                    download_df = download_world_bank_dataset(
-                        selected_countries,
-                        selected_indicators,
-                        report_frequency,
-                        int(start_year),
-                        int(end_year),
-                        int(start_month),
-                        int(end_month)
-                    )
-
-
-            # -----------------------------------------------------------------
-            # STORE SESSION
-            # -----------------------------------------------------------------
-
-            st.session_state[
-                "download_macro_df"
-            ] = download_df
-
-
-            st.session_state[
-                "download_macro_frequency"
-            ] = report_frequency
-
-
-        except Exception as e:
-
-            st.error(
-                "Có lỗi xảy ra trong quá trình tải dữ liệu."
-            )
-
-            st.caption(
-                str(e)
-            )
-
-
-    # =========================================================================
-    # GET SESSION DATA
-    # =========================================================================
-
-    download_df = st.session_state.get(
-        "download_macro_df",
-        pd.DataFrame()
-    )
-
-
-    saved_frequency = st.session_state.get(
-        "download_macro_frequency"
-    )
-
-
-    # =========================================================================
-    # PREVIEW
-    # =========================================================================
-
-    if not download_df.empty:
-
-
-        # ---------------------------------------------------------------------
-        # WARNING IF OLD SESSION FREQUENCY
-        # ---------------------------------------------------------------------
-
-        if (
-            saved_frequency is not None
-            and saved_frequency != report_frequency
+        with st.spinner(
+            "Đang tải và tổng hợp dữ liệu..."
         ):
 
-            st.info(
-                "Bạn đã thay đổi tần suất báo cáo. "
-                "Nhấn 'Tải dữ liệu từ World Bank' để cập nhật dataset."
-            )
-
-            return
-
-
-        st.success(
-            f"Đã tải thành công "
-            f"{len(download_df):,} quan sát."
-        )
-
-
-        st.subheader(
-            "Xem trước dữ liệu"
-        )
-
-
-        # ---------------------------------------------------------------------
-        # DISPLAY RAW DATA
-        # ---------------------------------------------------------------------
-
-        if report_frequency == "Theo năm":
-
-            raw_columns = [
-                "Quốc gia",
-                "Mã quốc gia",
-                "Năm",
-                "Chỉ tiêu",
-                "Mã chỉ tiêu",
-                "Giá trị",
-                "Nguồn"
-            ]
-
-
-        else:
-
-            raw_columns = [
-                "Quốc gia",
-                "Mã quốc gia",
-                "Thời gian",
-                "Chỉ tiêu",
-                "Mã chỉ tiêu",
-                "Giá trị",
-                "Nguồn"
-            ]
-
-
-        st.dataframe(
-            download_df[
-                raw_columns
-            ],
-            use_container_width=True,
-            hide_index=True
-        )
-
-
-        # =====================================================================
-        # WIDE DATASET
-        # =====================================================================
-
-        st.subheader(
-            "Dataset phục vụ phân tích"
-        )
-
-
-        # ---------------------------------------------------------------------
-        # ANNUAL
-        # ---------------------------------------------------------------------
-
-        if report_frequency == "Theo năm":
-
-            wide_df = download_df.pivot_table(
-                index=[
-                    "Quốc gia",
-                    "Mã quốc gia",
-                    "Năm"
-                ],
-                columns="Chỉ tiêu",
-                values="Giá trị",
-                aggfunc="first"
-            ).reset_index()
-
-
-        # ---------------------------------------------------------------------
-        # MONTHLY
-        # ---------------------------------------------------------------------
-
-        else:
-
-            wide_df = download_df.pivot_table(
-                index=[
-                    "Quốc gia",
-                    "Mã quốc gia",
-                    "Thời gian"
-                ],
-                columns="Chỉ tiêu",
-                values="Giá trị",
-                aggfunc="first"
-            ).reset_index()
-
-
-        wide_df.columns.name = None
-
-
-        # ---------------------------------------------------------------------
-        # SORT
-        # ---------------------------------------------------------------------
-
-        if report_frequency == "Theo năm":
-
-            wide_df = wide_df.sort_values(
-                [
-                    "Quốc gia",
-                    "Năm"
-                ],
-                ascending=[
-                    True,
-                    False
-                ]
+            download_df = get_macro_dataset(
+                frequency,
+                selected_countries,
+                selected_indicators,
+                start_year,
+                end_year,
+                start_month,
+                end_month,
+                start_quarter,
+                end_quarter
             )
 
 
-        else:
-
-            wide_df["Ngày_sort"] = pd.to_datetime(
-                wide_df["Thời gian"]
-                + "-01",
-                errors="coerce"
-            )
+        st.session_state[
+            "macro_download_data"
+        ] = download_df
 
 
-            wide_df = wide_df.sort_values(
-                [
-                    "Quốc gia",
-                    "Ngày_sort"
-                ],
-                ascending=[
-                    True,
-                    False
-                ]
-            )
+        st.session_state[
+            "macro_download_frequency"
+        ] = frequency
 
 
-            wide_df = wide_df.drop(
-                columns=[
-                    "Ngày_sort"
-                ]
-            )
+    # =========================================================================
+    # SESSION
+    # =========================================================================
+
+    download_df = (
+        st.session_state.get(
+            "macro_download_data",
+            pd.DataFrame()
+        )
+    )
 
 
-        st.dataframe(
-            wide_df,
-            use_container_width=True,
-            hide_index=True
+    saved_frequency = (
+        st.session_state.get(
+            "macro_download_frequency"
+        )
+    )
+
+
+    if download_df.empty:
+
+        st.info(
+            "Chọn bộ lọc và nhấn "
+            "'Tải dữ liệu' để tạo dataset."
         )
 
+        return
 
-        # =====================================================================
-        # QUALITY CHECK
-        # =====================================================================
 
-        st.subheader(
-            "Kiểm tra chất lượng dữ liệu"
+    if saved_frequency != frequency:
+
+        st.info(
+            "Tần suất đã thay đổi. "
+            "Nhấn 'Tải dữ liệu' để cập nhật dataset."
         )
 
+        return
 
-        available_indicator_columns = [
 
-            indicator
+    # =========================================================================
+    # RAW
+    # =========================================================================
 
-            for indicator in selected_indicators
+    st.success(
+        f"Đã tải {len(download_df):,} quan sát."
+    )
 
-            if indicator in wide_df.columns
 
+    st.subheader(
+        "Dữ liệu gốc"
+    )
+
+
+    st.dataframe(
+        download_df.drop(
+            columns=["Ngày"]
+        ),
+        use_container_width=True,
+        hide_index=True
+    )
+
+
+    # =========================================================================
+    # WIDE
+    # =========================================================================
+
+    st.subheader(
+        "Dataset phục vụ Stress Test"
+    )
+
+
+    if frequency == "Theo năm":
+
+        index_columns = [
+            "Quốc gia",
+            "Mã quốc gia",
+            "Thời gian"
         ]
-
-
-        total_cells = (
-
-            len(wide_df)
-
-            * max(
-                len(selected_indicators),
-                1
-            )
-
-        )
-
-
-        missing_values = 0
-
-
-        for indicator in selected_indicators:
-
-            if indicator in wide_df.columns:
-
-                missing_values += (
-                    wide_df[
-                        indicator
-                    ]
-                    .isna()
-                    .sum()
-                )
-
-
-            else:
-
-                missing_values += (
-                    len(wide_df)
-                )
-
-
-        if total_cells > 0:
-
-            missing_rate = (
-                missing_values
-                / total_cells
-                * 100
-            )
-
-        else:
-
-            missing_rate = 0
-
-
-        quality1, quality2, quality3 = (
-            st.columns(3)
-        )
-
-
-        with quality1:
-
-            st.metric(
-                "Số quan sát",
-                f"{len(wide_df):,}"
-            )
-
-
-        with quality2:
-
-            st.metric(
-                "Giá trị thiếu",
-                f"{missing_values:,}"
-            )
-
-
-        with quality3:
-
-            st.metric(
-                "Tỷ lệ thiếu",
-                f"{missing_rate:.2f}%"
-            )
-
-
-        # =====================================================================
-        # MISSING DETAIL
-        # =====================================================================
-
-        missing_records = []
-
-
-        for indicator in selected_indicators:
-
-            if indicator in wide_df.columns:
-
-                missing_count = (
-                    wide_df[
-                        indicator
-                    ]
-                    .isna()
-                    .sum()
-                )
-
-
-            else:
-
-                missing_count = (
-                    len(wide_df)
-                )
-
-
-            missing_rate_indicator = (
-
-                missing_count
-                / len(wide_df)
-                * 100
-
-                if len(wide_df) > 0
-
-                else 0
-
-            )
-
-
-            missing_records.append(
-                {
-                    "Chỉ tiêu":
-                        indicator,
-
-                    "Số giá trị thiếu":
-                        missing_count,
-
-                    "Tỷ lệ thiếu (%)":
-                        round(
-                            missing_rate_indicator,
-                            2
-                        )
-                }
-            )
-
-
-        missing_df = pd.DataFrame(
-            missing_records
-        )
-
-
-        with st.expander(
-            "Chi tiết dữ liệu thiếu"
-        ):
-
-            st.dataframe(
-                missing_df,
-                use_container_width=True,
-                hide_index=True
-            )
-
-
-        # =====================================================================
-        # PERIOD SUMMARY
-        # =====================================================================
-
-        st.subheader(
-            "Thông tin bộ dữ liệu"
-        )
-
-
-        p1, p2, p3 = st.columns(3)
-
-
-        with p1:
-
-            st.metric(
-                "Quốc gia",
-                len(selected_countries)
-            )
-
-
-        with p2:
-
-            st.metric(
-                "Chỉ tiêu",
-                len(selected_indicators)
-            )
-
-
-        with p3:
-
-            if report_frequency == "Theo năm":
-
-                st.metric(
-                    "Giai đoạn",
-                    (
-                        f"{int(start_year)} - "
-                        f"{int(end_year)}"
-                    )
-                )
-
-
-            else:
-
-                st.metric(
-                    "Giai đoạn",
-                    (
-                        f"{int(start_month):02d}/"
-                        f"{int(start_year)} - "
-                        f"{int(end_month):02d}/"
-                        f"{int(end_year)}"
-                    )
-                )
-
-
-        # =====================================================================
-        # EXPORT
-        # =====================================================================
-
-        st.subheader(
-            "Xuất dữ liệu"
-        )
-
-
-        # ---------------------------------------------------------------------
-        # CSV
-        # ---------------------------------------------------------------------
-
-        csv_data = (
-            wide_df
-            .to_csv(
-                index=False
-            )
-            .encode(
-                "utf-8-sig"
-            )
-        )
-
-
-        # ---------------------------------------------------------------------
-        # EXCEL
-        # ---------------------------------------------------------------------
-
-        excel_buffer = BytesIO()
-
-
-        with pd.ExcelWriter(
-            excel_buffer,
-            engine="openpyxl"
-        ) as writer:
-
-
-            # Wide
-            wide_df.to_excel(
-                writer,
-                index=False,
-                sheet_name="Macro Dataset"
-            )
-
-
-            # Raw
-            download_df[
-                raw_columns
-            ].to_excel(
-                writer,
-                index=False,
-                sheet_name="Raw Data"
-            )
-
-
-            # Quality
-            missing_df.to_excel(
-                writer,
-                index=False,
-                sheet_name="Data Quality"
-            )
-
-
-        excel_data = (
-            excel_buffer
-            .getvalue()
-        )
-
-
-        # =====================================================================
-        # FILE NAME
-        # =====================================================================
-
-        if len(selected_countries) == 1:
-
-            country_name_file = countries[
-                selected_countries[0]
-            ]
-
-        else:
-
-            country_name_file = (
-                "MULTI_COUNTRY"
-            )
-
-
-        file_frequency = (
-            "ANNUAL"
-            if report_frequency == "Theo năm"
-            else "MONTHLY"
-        )
-
-
-        if report_frequency == "Theo năm":
-
-            file_period = (
-                f"{int(start_year)}_"
-                f"{int(end_year)}"
-            )
-
-
-        else:
-
-            file_period = (
-                f"{int(start_year)}"
-                f"{int(start_month):02d}_"
-                f"{int(end_year)}"
-                f"{int(end_month):02d}"
-            )
-
-
-        file_base = (
-
-            f"MACRO_DATA_"
-            f"{country_name_file}_"
-            f"{file_frequency}_"
-            f"{file_period}"
-
-        )
-
-
-        # =====================================================================
-        # DOWNLOAD BUTTONS
-        # =====================================================================
-
-        col_csv, col_excel = (
-            st.columns(2)
-        )
-
-
-        with col_csv:
-
-            st.download_button(
-                label="Tải CSV",
-                data=csv_data,
-                file_name=(
-                    f"{file_base}.csv"
-                ),
-                mime="text/csv",
-                use_container_width=True
-            )
-
-
-        with col_excel:
-
-            st.download_button(
-                label="Tải Excel",
-                data=excel_data,
-                file_name=(
-                    f"{file_base}.xlsx"
-                ),
-                mime=(
-                    "application/vnd.openxmlformats-officedocument."
-                    "spreadsheetml.sheet"
-                ),
-                use_container_width=True
-            )
-
-
-        # =====================================================================
-        # SOURCE
-        # =====================================================================
-
-        st.divider()
-
-
-        if report_frequency == "Theo năm":
-
-            st.caption(
-                "Nguồn dữ liệu: World Bank Indicators API • "
-                "Tần suất: Năm"
-            )
-
-
-        else:
-
-            st.caption(
-                "Nguồn dữ liệu: World Bank High-Frequency Indicators • "
-                "Tần suất: Tháng • "
-                "Một số quốc gia hoặc chỉ tiêu có thể không có dữ liệu tháng."
-            )
 
 
     else:
 
-        st.info(
-            "Chọn quốc gia, chỉ tiêu và tần suất, "
-            "sau đó nhấn 'Tải dữ liệu từ World Bank' để tạo dataset."
+        index_columns = [
+            "Thời gian"
+        ]
+
+
+    wide_df = (
+        download_df
+        .pivot_table(
+            index=index_columns,
+            columns="Chỉ tiêu",
+            values="Giá trị",
+            aggfunc="first"
+        )
+        .reset_index()
+    )
+
+
+    wide_df.columns.name = None
+
+
+    st.dataframe(
+        wide_df,
+        use_container_width=True,
+        hide_index=True
+    )
+
+
+    # =========================================================================
+    # QUALITY
+    # =========================================================================
+
+    st.subheader(
+        "Kiểm tra chất lượng dữ liệu"
+    )
+
+
+    missing_records = []
+
+
+    for indicator in selected_indicators:
+
+        if indicator in wide_df.columns:
+
+            missing_count = (
+                wide_df[
+                    indicator
+                ].isna().sum()
+            )
+
+        else:
+
+            missing_count = (
+                len(wide_df)
+            )
+
+
+        missing_records.append(
+            {
+                "Chỉ tiêu":
+                    indicator,
+
+                "Số giá trị thiếu":
+                    missing_count,
+
+                "Tỷ lệ thiếu (%)":
+                    (
+                        missing_count
+                        / len(wide_df)
+                        * 100
+                        if len(wide_df)
+                        else 0
+                    )
+            }
+        )
+
+
+    missing_df = pd.DataFrame(
+        missing_records
+    )
+
+
+    q1, q2, q3 = (
+        st.columns(3)
+    )
+
+
+    total_missing = (
+        missing_df[
+            "Số giá trị thiếu"
+        ].sum()
+    )
+
+
+    total_possible = (
+        len(wide_df)
+        * len(selected_indicators)
+    )
+
+
+    with q1:
+
+        st.metric(
+            "Số kỳ",
+            len(wide_df)
+        )
+
+
+    with q2:
+
+        st.metric(
+            "Giá trị thiếu",
+            int(total_missing)
+        )
+
+
+    with q3:
+
+        st.metric(
+            "Tỷ lệ thiếu",
+            (
+                f"{total_missing / total_possible * 100:.2f}%"
+                if total_possible
+                else "0.00%"
+            )
+        )
+
+
+    with st.expander(
+        "Chi tiết dữ liệu thiếu"
+    ):
+
+        st.dataframe(
+            missing_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+
+    # =========================================================================
+    # EXPORT
+    # =========================================================================
+
+    st.subheader(
+        "Xuất dữ liệu"
+    )
+
+
+    csv = (
+        wide_df
+        .to_csv(
+            index=False
+        )
+        .encode(
+            "utf-8-sig"
+        )
+    )
+
+
+    excel_buffer = BytesIO()
+
+
+    with pd.ExcelWriter(
+        excel_buffer,
+        engine="openpyxl"
+    ) as writer:
+
+
+        wide_df.to_excel(
+            writer,
+            index=False,
+            sheet_name="Macro Dataset"
+        )
+
+
+        download_df.drop(
+            columns=["Ngày"]
+        ).to_excel(
+            writer,
+            index=False,
+            sheet_name="Raw Data"
+        )
+
+
+        missing_df.to_excel(
+            writer,
+            index=False,
+            sheet_name="Data Quality"
+        )
+
+
+    c1, c2 = st.columns(2)
+
+
+    file_frequency = (
+        frequency.replace(
+            "Theo ",
+            ""
+        )
+        .upper()
+    )
+
+
+    with c1:
+
+        st.download_button(
+            "Tải CSV",
+            csv,
+            file_name=(
+                f"MACRO_DATA_"
+                f"{file_frequency}.csv"
+            ),
+            mime="text/csv",
+            use_container_width=True
+        )
+
+
+    with c2:
+
+        st.download_button(
+            "Tải Excel",
+            excel_buffer.getvalue(),
+            file_name=(
+                f"MACRO_DATA_"
+                f"{file_frequency}.xlsx"
+            ),
+            mime=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+            use_container_width=True
         )
 
 
@@ -3599,650 +2637,281 @@ def tab3():
     st.title("Phân tích vĩ mô")
 
     st.caption(
-        "Phân tích xu hướng, thống kê mô tả, tương quan và mối quan hệ "
-        "giữa các biến kinh tế vĩ mô theo tần suất năm hoặc tháng."
+        "Phân tích xu hướng, thống kê mô tả, tương quan và "
+        "mối quan hệ giữa các biến vĩ mô và thị trường."
     )
 
     st.divider()
 
 
     # =========================================================================
-    # DANH MỤC QUỐC GIA
+    # FREQUENCY
     # =========================================================================
 
-    countries = {
-        "Việt Nam": "VNM",
-        "Hoa Kỳ": "USA",
-        "Trung Quốc": "CHN",
-        "Nhật Bản": "JPN",
-        "Hàn Quốc": "KOR",
-        "Singapore": "SGP",
-        "Thái Lan": "THA",
-        "Indonesia": "IDN",
-        "Malaysia": "MYS",
-        "Philippines": "PHL"
-    }
-
-
-    # =========================================================================
-    # CHỈ TIÊU THEO NĂM
-    # =========================================================================
-
-    annual_indicators = {
-
-        "Tăng trưởng GDP (%)":
-            "NY.GDP.MKTP.KD.ZG",
-
-        "Lạm phát CPI (%)":
-            "FP.CPI.TOTL.ZG",
-
-        "Lãi suất cho vay (%)":
-            "FR.INR.LEND",
-
-        "Lãi suất tiền gửi (%)":
-            "FR.INR.DPST",
-
-        "Lãi suất thực (%)":
-            "FR.INR.RINR",
-
-        "Cung tiền rộng (% GDP)":
-            "FM.LBL.BMNY.GD.ZS",
-
-        "Tín dụng khu vực tư nhân (% GDP)":
-            "FS.AST.PRVT.GD.ZS",
-
-        "Tỷ lệ thất nghiệp (%)":
-            "SL.UEM.TOTL.ZS",
-
-        "Tài khoản vãng lai (% GDP)":
-            "BN.CAB.XOKA.GD.ZS",
-
-        "FDI ròng (% GDP)":
-            "BX.KLT.DINV.WD.GD.ZS"
-    }
-
-
-    # =========================================================================
-    # CHỈ TIÊU THEO THÁNG
-    # =========================================================================
-
-    monthly_indicators = {
-
-        "Tỷ giá - giá trị cuối kỳ":
-            "DPANUSSPB",
-
-        "Tỷ giá - giá trị kỳ":
-            "DPANUSSPF"
-    }
-
-
-    # =========================================================================
-    # BỘ LỌC
-    # =========================================================================
-
-    st.subheader("Bộ lọc phân tích")
-
-
-    col1, col2 = st.columns(2)
-
-
-    # -------------------------------------------------------------------------
-    # QUỐC GIA
-    # -------------------------------------------------------------------------
-
-    with col1:
-
-        selected_country = st.selectbox(
-            "Quốc gia",
-            options=list(countries.keys()),
-            index=0,
-            key="analysis_country"
-        )
-
-        country_code = countries[selected_country]
-
-
-    # -------------------------------------------------------------------------
-    # TẦN SUẤT
-    # -------------------------------------------------------------------------
-
-    with col2:
-
-        report_frequency = st.selectbox(
-            "Tần suất báo cáo",
-            [
-                "Theo năm",
-                "Theo tháng"
-            ],
-            index=0,
-            key="analysis_frequency"
-        )
-
-
-    # =========================================================================
-    # CHỌN BỘ INDICATOR
-    # =========================================================================
-
-    if report_frequency == "Theo năm":
-
-        indicators = annual_indicators
-
-        default_indicators = [
-            "Tăng trưởng GDP (%)",
-            "Lạm phát CPI (%)",
-            "Lãi suất thực (%)",
-            "Tín dụng khu vực tư nhân (% GDP)"
-        ]
-
-    else:
-
-        indicators = monthly_indicators
-
-        default_indicators = [
-            "Tỷ giá - giá trị cuối kỳ",
-            "Tỷ giá - giá trị kỳ"
-        ]
-
-
-    # =========================================================================
-    # CHỈ TIÊU
-    # =========================================================================
-
-    selected_indicators = st.multiselect(
-        "Chỉ tiêu phân tích",
-        options=list(indicators.keys()),
-        default=[
-            x
-            for x in default_indicators
-            if x in indicators
+    frequency = st.selectbox(
+        "Tần suất phân tích",
+        [
+            "Theo tháng",
+            "Theo quý",
+            "Theo năm"
         ],
-        placeholder="Chọn các chỉ tiêu",
-        key=f"analysis_indicators_{report_frequency}"
+        index=2,
+        key="tab3_frequency"
     )
 
 
     # =========================================================================
-    # THỜI GIAN
+    # INDICATORS
     # =========================================================================
 
-    current_year = datetime.now().year
-    current_month = datetime.now().month
+    if frequency == "Theo năm":
+
+        selected_country = st.selectbox(
+            "Quốc gia",
+            list(
+                COUNTRIES.keys()
+            ),
+            index=0,
+            key="tab3_country"
+        )
 
 
-    # =========================================================================
-    # ANNUAL
-    # =========================================================================
-
-    if report_frequency == "Theo năm":
-
-        col_start, col_end = st.columns(2)
+        selected_countries = [
+            selected_country
+        ]
 
 
-        with col_start:
-
-            start_year = st.number_input(
-                "Từ năm",
-                min_value=1960,
-                max_value=current_year,
-                value=2000,
-                step=1,
-                key="analysis_annual_start"
+        selected_indicators = (
+            st.multiselect(
+                "Chỉ tiêu phân tích",
+                list(
+                    ANNUAL_INDICATORS_FLAT.keys()
+                ),
+                default=[
+                    "Tăng trưởng GDP (%)",
+                    "Lạm phát CPI (%)",
+                    "Lãi suất thực (%)",
+                    "Tín dụng khu vực tư nhân (% GDP)"
+                ],
+                key="tab3_indicators_a"
             )
+        )
 
-
-        with col_end:
-
-            end_year = st.number_input(
-                "Đến năm",
-                min_value=1960,
-                max_value=current_year,
-                value=current_year,
-                step=1,
-                key="analysis_annual_end"
-            )
-
-
-        start_month = None
-        end_month = None
-
-
-    # =========================================================================
-    # MONTHLY
-    # =========================================================================
 
     else:
 
-        col1, col2, col3, col4 = st.columns(4)
+        selected_country = (
+            "Việt Nam / Thị trường quốc tế"
+        )
 
 
-        with col1:
+        selected_countries = [
+            "Việt Nam"
+        ]
 
-            start_year = st.number_input(
-                "Từ năm",
-                min_value=1960,
-                max_value=current_year,
-                value=2015,
-                step=1,
-                key="analysis_month_start_year"
+
+        selected_indicators = (
+            st.multiselect(
+                "Chỉ tiêu phân tích",
+                list(
+                    MARKET_INDICATORS_FLAT.keys()
+                ),
+                default=[
+                    "USD/VND",
+                    "VN-Index",
+                    "Giá dầu WTI",
+                    "Giá vàng"
+                ],
+                key=f"tab3_indicators_{frequency}"
             )
+        )
 
-
-        with col2:
-
-            start_month = st.selectbox(
-                "Từ tháng",
-                options=list(range(1, 13)),
-                index=0,
-                key="analysis_start_month"
-            )
-
-
-        with col3:
-
-            end_year = st.number_input(
-                "Đến năm",
-                min_value=1960,
-                max_value=current_year,
-                value=current_year,
-                step=1,
-                key="analysis_month_end_year"
-            )
-
-
-        with col4:
-
-            end_month = st.selectbox(
-                "Đến tháng",
-                options=list(range(1, 13)),
-                index=current_month - 1,
-                key="analysis_end_month"
-            )
-
-
-    # =========================================================================
-    # VALIDATION
-    # =========================================================================
 
     if not selected_indicators:
 
         st.warning(
-            "Vui lòng chọn ít nhất một chỉ tiêu để phân tích."
+            "Vui lòng chọn ít nhất một chỉ tiêu."
         )
 
         return
 
 
-    if int(start_year) > int(end_year):
+    # =========================================================================
+    # PERIOD
+    # =========================================================================
 
-        st.error(
-            "Thời gian bắt đầu không được lớn hơn thời gian kết thúc."
-        )
+    current_year = (
+        datetime.now().year
+    )
 
-        return
-
-
-    if report_frequency == "Theo tháng":
-
-        start_period = (
-            int(start_year) * 100
-            + int(start_month)
-        )
-
-        end_period = (
-            int(end_year) * 100
-            + int(end_month)
-        )
+    current_month = (
+        datetime.now().month
+    )
 
 
-        if start_period > end_period:
+    if frequency == "Theo năm":
 
-            st.error(
-                "Tháng bắt đầu không được lớn hơn tháng kết thúc."
+        c1, c2 = st.columns(2)
+
+
+        with c1:
+
+            start_year = st.number_input(
+                "Từ năm",
+                1960,
+                current_year,
+                2000,
+                key="tab3_a_sy"
             )
 
-            return
+
+        with c2:
+
+            end_year = st.number_input(
+                "Đến năm",
+                1960,
+                current_year,
+                current_year,
+                key="tab3_a_ey"
+            )
+
+
+        start_month = 1
+        end_month = 12
+        start_quarter = 1
+        end_quarter = 4
+
+
+    elif frequency == "Theo tháng":
+
+        c1, c2, c3, c4 = (
+            st.columns(4)
+        )
+
+
+        with c1:
+
+            start_year = st.number_input(
+                "Từ năm",
+                2000,
+                current_year,
+                2015,
+                key="tab3_m_sy"
+            )
+
+
+        with c2:
+
+            start_month = st.selectbox(
+                "Từ tháng",
+                range(1, 13),
+                key="tab3_m_sm"
+            )
+
+
+        with c3:
+
+            end_year = st.number_input(
+                "Đến năm",
+                2000,
+                current_year,
+                current_year,
+                key="tab3_m_ey"
+            )
+
+
+        with c4:
+
+            end_month = st.selectbox(
+                "Đến tháng",
+                range(1, 13),
+                index=current_month - 1,
+                key="tab3_m_em"
+            )
+
+
+        start_quarter = 1
+        end_quarter = 4
+
+
+    else:
+
+        c1, c2, c3, c4 = (
+            st.columns(4)
+        )
+
+
+        with c1:
+
+            start_year = st.number_input(
+                "Từ năm",
+                2000,
+                current_year,
+                2015,
+                key="tab3_q_sy"
+            )
+
+
+        with c2:
+
+            start_quarter = st.selectbox(
+                "Từ quý",
+                [1, 2, 3, 4],
+                key="tab3_q_sq"
+            )
+
+
+        with c3:
+
+            end_year = st.number_input(
+                "Đến năm",
+                2000,
+                current_year,
+                current_year,
+                key="tab3_q_ey"
+            )
+
+
+        with c4:
+
+            end_quarter = st.selectbox(
+                "Đến quý",
+                [1, 2, 3, 4],
+                index=3,
+                key="tab3_q_eq"
+            )
+
+
+        start_month = 1
+        end_month = 12
 
 
     # =========================================================================
-    # DOWNLOAD FUNCTION
+    # LOAD
     # =========================================================================
 
-    @st.cache_data(ttl=3600)
-    def get_analysis_data(
-        country_code,
-        selected_indicators,
-        frequency,
-        start_year,
-        end_year,
-        start_month=None,
-        end_month=None
+    with st.spinner(
+        "Đang tải dữ liệu phân tích..."
     ):
 
-        all_records = []
-
-
-        for indicator_name in selected_indicators:
-
-            indicator_code = indicators[
-                indicator_name
-            ]
-
-
-            url = (
-                "https://api.worldbank.org/v2/"
-                f"country/{country_code}/"
-                f"indicator/{indicator_code}"
-            )
-
-
-            # -----------------------------------------------------------------
-            # ANNUAL
-            # -----------------------------------------------------------------
-
-            if frequency == "Theo năm":
-
-                params = {
-                    "format": "json",
-                    "date":
-                        f"{int(start_year)}:{int(end_year)}",
-                    "per_page": 1000
-                }
-
-
-            # -----------------------------------------------------------------
-            # MONTHLY
-            # -----------------------------------------------------------------
-
-            else:
-
-                start_date = (
-                    f"{int(start_year)}"
-                    f"M{int(start_month):02d}"
-                )
-
-                end_date = (
-                    f"{int(end_year)}"
-                    f"M{int(end_month):02d}"
-                )
-
-
-                params = {
-                    "format": "json",
-                    "date":
-                        f"{start_date}:{end_date}",
-                    "frequency": "M",
-                    "per_page": 5000
-                }
-
-
-            try:
-
-                response = requests.get(
-                    url,
-                    params=params,
-                    timeout=30
-                )
-
-
-                response.raise_for_status()
-
-
-                data = response.json()
-
-
-                if (
-                    not isinstance(data, list)
-                    or len(data) < 2
-                    or data[1] is None
-                ):
-
-                    continue
-
-
-                for item in data[1]:
-
-                    raw_date = str(
-                        item.get(
-                            "date",
-                            ""
-                        )
-                    )
-
-
-                    value = item.get(
-                        "value"
-                    )
-
-
-                    if value is None:
-
-                        continue
-
-
-                    # =========================================================
-                    # ANNUAL RECORD
-                    # =========================================================
-
-                    if frequency == "Theo năm":
-
-                        try:
-
-                            year = int(
-                                raw_date
-                            )
-
-                        except Exception:
-
-                            continue
-
-
-                        all_records.append(
-                            {
-                                "Thời gian":
-                                    str(year),
-
-                                "Ngày":
-                                    pd.Timestamp(
-                                        year=year,
-                                        month=1,
-                                        day=1
-                                    ),
-
-                                "Chỉ tiêu":
-                                    indicator_name,
-
-                                "Giá trị":
-                                    value
-                            }
-                        )
-
-
-                    # =========================================================
-                    # MONTHLY RECORD
-                    # =========================================================
-
-                    else:
-
-                        year = None
-                        month = None
-
-
-                        try:
-
-                            if "M" in raw_date:
-
-                                year_text, month_text = (
-                                    raw_date.split("M")
-                                )
-
-                                year = int(
-                                    year_text
-                                )
-
-                                month = int(
-                                    month_text
-                                )
-
-
-                            elif "-" in raw_date:
-
-                                parts = (
-                                    raw_date.split("-")
-                                )
-
-                                year = int(
-                                    parts[0]
-                                )
-
-                                month = int(
-                                    parts[1]
-                                )
-
-
-                        except Exception:
-
-                            continue
-
-
-                        if (
-                            year is None
-                            or month is None
-                        ):
-
-                            continue
-
-
-                        all_records.append(
-                            {
-                                "Thời gian":
-                                    f"{year}-{month:02d}",
-
-                                "Ngày":
-                                    pd.Timestamp(
-                                        year=year,
-                                        month=month,
-                                        day=1
-                                    ),
-
-                                "Chỉ tiêu":
-                                    indicator_name,
-
-                                "Giá trị":
-                                    value
-                            }
-                        )
-
-
-            except Exception:
-
-                continue
-
-
-        df = pd.DataFrame(
-            all_records
+        raw_df = get_macro_dataset(
+            frequency,
+            selected_countries,
+            selected_indicators,
+            start_year,
+            end_year,
+            start_month,
+            end_month,
+            start_quarter,
+            end_quarter
         )
 
 
-        if df.empty:
-
-            return df
-
-
-        df["Giá trị"] = pd.to_numeric(
-            df["Giá trị"],
-            errors="coerce"
-        )
-
-
-        df["Ngày"] = pd.to_datetime(
-            df["Ngày"],
-            errors="coerce"
-        )
-
-
-        df = df.dropna(
-            subset=[
-                "Ngày",
-                "Giá trị"
-            ]
-        )
-
-
-        df = df.sort_values(
-            [
-                "Chỉ tiêu",
-                "Ngày"
-            ]
-        ).reset_index(
-            drop=True
-        )
-
-
-        return df
-
-
-    # =========================================================================
-    # LOAD DATA
-    # =========================================================================
-
-    try:
-
-        with st.spinner(
-            "Đang tải dữ liệu phân tích..."
-        ):
-
-
-            if report_frequency == "Theo năm":
-
-                analysis_raw = get_analysis_data(
-                    country_code,
-                    selected_indicators,
-                    report_frequency,
-                    int(start_year),
-                    int(end_year)
-                )
-
-
-            else:
-
-                analysis_raw = get_analysis_data(
-                    country_code,
-                    selected_indicators,
-                    report_frequency,
-                    int(start_year),
-                    int(end_year),
-                    int(start_month),
-                    int(end_month)
-                )
-
-
-    except Exception as e:
-
-        st.error(
-            "Không thể tải dữ liệu phân tích."
-        )
-
-        st.caption(
-            str(e)
-        )
-
-        return
-
-
-    if analysis_raw.empty:
+    if raw_df.empty:
 
         st.warning(
             "Không tìm thấy dữ liệu phù hợp."
         )
-
-
-        if report_frequency == "Theo tháng":
-
-            st.caption(
-                "Một số chỉ tiêu hoặc quốc gia có thể "
-                "không có dữ liệu tần suất tháng."
-            )
-
 
         return
 
@@ -4251,30 +2920,24 @@ def tab3():
     # PIVOT
     # =========================================================================
 
-    analysis_df = analysis_raw.pivot_table(
-        index=[
-            "Ngày",
-            "Thời gian"
-        ],
-        columns="Chỉ tiêu",
-        values="Giá trị",
-        aggfunc="first"
-    ).reset_index()
+    analysis_df = (
+        raw_df
+        .pivot_table(
+            index=[
+                "Ngày",
+                "Thời gian"
+            ],
+            columns="Chỉ tiêu",
+            values="Giá trị",
+            aggfunc="first"
+        )
+        .reset_index()
+        .sort_values("Ngày")
+    )
 
 
     analysis_df.columns.name = None
 
-
-    analysis_df = analysis_df.sort_values(
-        "Ngày"
-    ).reset_index(
-        drop=True
-    )
-
-
-    # =========================================================================
-    # AVAILABLE INDICATORS
-    # =========================================================================
 
     available_indicators = [
         x
@@ -4283,28 +2946,19 @@ def tab3():
     ]
 
 
-    if not available_indicators:
-
-        st.warning(
-            "Các chỉ tiêu được chọn không có dữ liệu."
-        )
-
-        return
-
-
     # =========================================================================
-    # OVERVIEW
+    # OVERVIEW KPI
     # =========================================================================
 
     st.subheader(
-        f"Tổng quan kinh tế vĩ mô – {selected_country}"
+        f"Tổng quan – {selected_country}"
     )
 
 
-    metric_columns = st.columns(
+    metric_cols = st.columns(
         min(
-            len(available_indicators),
-            4
+            4,
+            len(available_indicators)
         )
     )
 
@@ -4313,73 +2967,42 @@ def tab3():
         available_indicators[:4]
     ):
 
-        series = analysis_df[
-            [
-                "Ngày",
-                "Thời gian",
-                indicator
+
+        series = (
+            analysis_df[
+                [
+                    "Thời gian",
+                    indicator
+                ]
             ]
-        ].dropna()
+            .dropna()
+        )
 
 
         if series.empty:
-
             continue
 
 
         latest = series.iloc[-1]
 
 
-        latest_period = (
-            latest["Thời gian"]
-        )
+        delta = None
 
-
-        latest_value = (
-            latest[indicator]
-        )
-
-
-        # ---------------------------------------------------------------------
-        # PREVIOUS PERIOD
-        # ---------------------------------------------------------------------
 
         if len(series) >= 2:
 
-            previous = (
-                series.iloc[-2]
-            )
-
-
-            previous_value = (
-                previous[indicator]
-            )
-
-
             delta = (
-                latest_value
-                - previous_value
+                latest[indicator]
+                - series.iloc[-2][indicator]
             )
 
 
-        else:
-
-            delta = None
-
-
-        with metric_columns[i]:
+        with metric_cols[i]:
 
             st.metric(
-                label=(
-                    f"{indicator} "
-                    f"({latest_period})"
-                ),
-
-                value=(
-                    f"{latest_value:,.2f}"
-                ),
-
-                delta=(
+                f"{indicator} ({latest['Thời gian']})",
+                f"{latest[indicator]:,.2f}",
+                (
                     f"{delta:+.2f}"
                     if delta is not None
                     else None
@@ -4388,24 +3011,18 @@ def tab3():
 
 
     # =========================================================================
-    # TREND ANALYSIS
+    # TREND
     # =========================================================================
 
     st.subheader(
-        "Xu hướng các chỉ tiêu vĩ mô"
-    )
-
-
-    st.caption(
-        "Các chuỗi có thể có đơn vị và thang đo khác nhau. "
-        "Có thể chuẩn hóa dữ liệu để so sánh xu hướng."
+        "Xu hướng các chỉ tiêu"
     )
 
 
     normalize = st.toggle(
-        "Chuẩn hóa dữ liệu để so sánh xu hướng",
+        "Chuẩn hóa dữ liệu (Z-score)",
         value=True,
-        key=f"normalize_macro_{report_frequency}"
+        key=f"tab3_normalize_{frequency}"
     )
 
 
@@ -4414,22 +3031,18 @@ def tab3():
     )
 
 
-    # =========================================================================
-    # STANDARDIZATION
-    # =========================================================================
-
     if normalize:
 
         for indicator in available_indicators:
 
-            mean_value = (
+            mean = (
                 chart_df[
                     indicator
                 ].mean()
             )
 
 
-            std_value = (
+            std = (
                 chart_df[
                     indicator
                 ].std()
@@ -4437,8 +3050,8 @@ def tab3():
 
 
             if (
-                pd.notna(std_value)
-                and std_value != 0
+                pd.notna(std)
+                and std != 0
             ):
 
                 chart_df[
@@ -4448,112 +3061,55 @@ def tab3():
                     chart_df[
                         indicator
                     ]
-                    - mean_value
+                    - mean
 
-                ) / std_value
+                ) / std
 
-
-    # =========================================================================
-    # TREND CHART
-    # =========================================================================
 
     fig = go.Figure()
 
 
     for indicator in available_indicators:
 
-        indicator_df = chart_df[
-            [
-                "Ngày",
-                indicator
+        temp = (
+            chart_df[
+                [
+                    "Ngày",
+                    indicator
+                ]
             ]
-        ].dropna()
+            .dropna()
+        )
 
 
         fig.add_trace(
             go.Scatter(
-                x=indicator_df[
-                    "Ngày"
-                ],
-
-                y=indicator_df[
-                    indicator
-                ],
-
-                mode=(
-                    "lines+markers"
-                    if report_frequency
-                    == "Theo năm"
-                    else "lines"
-                ),
-
-                name=indicator,
-
-                hovertemplate=(
-                    "<b>%{fullData.name}</b><br>"
-                    "Thời gian: %{x}<br>"
-                    "Giá trị: %{y:,.2f}"
-                    "<extra></extra>"
-                )
+                x=temp["Ngày"],
+                y=temp[indicator],
+                mode="lines",
+                name=indicator
             )
         )
 
 
     fig.update_layout(
-
         template="plotly_dark",
-
         height=550,
-
         paper_bgcolor="#0E0E0E",
-
         plot_bgcolor="#0E0E0E",
-
         hovermode="x unified",
-
-        margin=dict(
-            l=20,
-            r=20,
-            t=30,
-            b=20
-        ),
-
-        xaxis_title=(
-            "Năm"
-            if report_frequency
-            == "Theo năm"
-            else "Tháng"
-        ),
-
         yaxis_title=(
             "Z-score"
             if normalize
             else "Giá trị"
         ),
-
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="left",
-            x=0
+        xaxis_title=(
+            frequency.replace(
+                "Theo ",
+                ""
+            )
         )
     )
-
-
-    if report_frequency == "Theo năm":
-
-        fig.update_xaxes(
-            tickformat="%Y",
-            showgrid=False
-        )
-
-    else:
-
-        fig.update_xaxes(
-            tickformat="%m/%Y",
-            showgrid=False
-        )
 
 
     fig.update_yaxes(
@@ -4568,7 +3124,7 @@ def tab3():
 
 
     # =========================================================================
-    # DESCRIPTIVE STATISTICS
+    # DESCRIPTIVE
     # =========================================================================
 
     st.subheader(
@@ -4576,12 +3132,12 @@ def tab3():
     )
 
 
-    descriptive_data = []
+    descriptive = []
 
 
     for indicator in available_indicators:
 
-        series = (
+        x = (
             analysis_df[
                 indicator
             ]
@@ -4589,63 +3145,38 @@ def tab3():
         )
 
 
-        if series.empty:
-
-            continue
-
-
-        descriptive_data.append(
+        descriptive.append(
             {
                 "Chỉ tiêu":
                     indicator,
 
                 "Số quan sát":
-                    len(series),
+                    len(x),
 
                 "Trung bình":
-                    series.mean(),
+                    x.mean(),
 
                 "Trung vị":
-                    series.median(),
+                    x.median(),
 
                 "Thấp nhất":
-                    series.min(),
+                    x.min(),
 
                 "Cao nhất":
-                    series.max(),
+                    x.max(),
 
                 "Độ lệch chuẩn":
-                    series.std()
+                    x.std()
             }
         )
 
 
-    descriptive_df = pd.DataFrame(
-        descriptive_data
-    )
-
-
-    numeric_columns = [
-        "Trung bình",
-        "Trung vị",
-        "Thấp nhất",
-        "Cao nhất",
-        "Độ lệch chuẩn"
-    ]
-
-
-    if not descriptive_df.empty:
-
-        descriptive_df[
-            numeric_columns
-        ] = (
-
-            descriptive_df[
-                numeric_columns
-            ]
-            .round(2)
-
+    descriptive_df = (
+        pd.DataFrame(
+            descriptive
         )
+        .round(3)
+    )
 
 
     st.dataframe(
@@ -4665,17 +3196,23 @@ def tab3():
 
 
     st.caption(
-        "Hệ số tương quan phản ánh mức độ đồng biến hoặc nghịch biến "
-        "giữa các biến. Tương quan không đồng nghĩa với quan hệ nhân quả."
+        "Tương quan phản ánh mối liên hệ thống kê "
+        "và không đồng nghĩa với quan hệ nhân quả."
     )
 
 
-    if len(available_indicators) >= 2:
+    if len(
+        available_indicators
+    ) >= 2:
 
-        corr_df = analysis_df[
-            available_indicators
-        ].corr(
-            min_periods=3
+
+        corr_df = (
+            analysis_df[
+                available_indicators
+            ]
+            .corr(
+                min_periods=3
+            )
         )
 
 
@@ -4690,13 +3227,7 @@ def tab3():
                     corr_df.values,
                     2
                 ),
-                texttemplate="%{text}",
-                hovertemplate=(
-                    "%{y}<br>"
-                    "%{x}<br>"
-                    "Tương quan: %{z:.2f}"
-                    "<extra></extra>"
-                )
+                texttemplate="%{text}"
             )
         )
 
@@ -4705,13 +3236,7 @@ def tab3():
             template="plotly_dark",
             height=520,
             paper_bgcolor="#0E0E0E",
-            plot_bgcolor="#0E0E0E",
-            margin=dict(
-                l=20,
-                r=20,
-                t=20,
-                b=20
-            )
+            plot_bgcolor="#0E0E0E"
         )
 
 
@@ -4722,7 +3247,7 @@ def tab3():
 
 
         # =====================================================================
-        # PAIR ANALYSIS
+        # TWO VARIABLES
         # =====================================================================
 
         st.subheader(
@@ -4730,57 +3255,51 @@ def tab3():
         )
 
 
-        col_x, col_y = st.columns(2)
+        c1, c2 = st.columns(2)
 
 
-        with col_x:
+        with c1:
 
             variable_x = st.selectbox(
                 "Biến X",
                 available_indicators,
-                index=0,
-                key=f"macro_x_{report_frequency}"
+                key=f"tab3_x_{frequency}"
             )
 
 
-        with col_y:
+        with c2:
 
             variable_y = st.selectbox(
                 "Biến Y",
                 available_indicators,
                 index=(
                     1
-                    if len(available_indicators) > 1
+                    if len(
+                        available_indicators
+                    ) > 1
                     else 0
                 ),
-                key=f"macro_y_{report_frequency}"
+                key=f"tab3_y_{frequency}"
             )
 
 
-        # =====================================================================
-        # SAME VARIABLE
-        # =====================================================================
-
-        if variable_x == variable_y:
-
-            st.info(
-                "Vui lòng chọn hai biến khác nhau để phân tích."
-            )
+        if variable_x != variable_y:
 
 
-        else:
-
-            pair_df = analysis_df[
-                [
-                    "Ngày",
-                    "Thời gian",
-                    variable_x,
-                    variable_y
+            pair_df = (
+                analysis_df[
+                    [
+                        "Thời gian",
+                        variable_x,
+                        variable_y
+                    ]
                 ]
-            ].dropna()
+                .dropna()
+            )
 
 
             if len(pair_df) >= 3:
+
 
                 correlation = (
                     pair_df[
@@ -4794,28 +3313,30 @@ def tab3():
                 )
 
 
-                # =============================================================
-                # REGRESSION
-                # =============================================================
-
-                x = pair_df[
-                    variable_x
-                ].values
-
-
-                y = pair_df[
-                    variable_y
-                ].values
-
-
-                slope, intercept = np.polyfit(
-                    x,
-                    y,
-                    1
+                x = (
+                    pair_df[
+                        variable_x
+                    ].values
                 )
 
 
-                predicted_y = (
+                y = (
+                    pair_df[
+                        variable_y
+                    ].values
+                )
+
+
+                slope, intercept = (
+                    np.polyfit(
+                        x,
+                        y,
+                        1
+                    )
+                )
+
+
+                predicted = (
                     slope * x
                     + intercept
                 )
@@ -4824,7 +3345,7 @@ def tab3():
                 ss_res = np.sum(
                     (
                         y
-                        - predicted_y
+                        - predicted
                     ) ** 2
                 )
 
@@ -4844,24 +3365,20 @@ def tab3():
                 )
 
 
-                # =============================================================
-                # METRICS
-                # =============================================================
-
-                c1, c2, c3 = (
+                m1, m2, m3 = (
                     st.columns(3)
                 )
 
 
-                with c1:
+                with m1:
 
                     st.metric(
-                        "Hệ số tương quan",
+                        "Tương quan",
                         f"{correlation:.3f}"
                     )
 
 
-                with c2:
+                with m2:
 
                     st.metric(
                         "Hệ số hồi quy",
@@ -4869,25 +3386,17 @@ def tab3():
                     )
 
 
-                with c3:
+                with m3:
 
                     st.metric(
                         "R²",
-                        (
-                            f"{r_squared:.3f}"
-                            if pd.notna(
-                                r_squared
-                            )
-                            else "N/A"
-                        )
+                        f"{r_squared:.3f}"
                     )
 
 
-                # =============================================================
-                # SCATTER
-                # =============================================================
-
-                scatter = go.Figure()
+                scatter = (
+                    go.Figure()
+                )
 
 
                 scatter.add_trace(
@@ -4895,18 +3404,10 @@ def tab3():
                         x=x,
                         y=y,
                         mode="markers",
-                        name="Quan sát",
                         text=pair_df[
                             "Thời gian"
                         ],
-                        hovertemplate=(
-                            "Thời gian: %{text}<br>"
-                            f"{variable_x}: "
-                            "%{x:.2f}<br>"
-                            f"{variable_y}: "
-                            "%{y:.2f}"
-                            "<extra></extra>"
-                        )
+                        name="Quan sát"
                     )
                 )
 
@@ -4919,7 +3420,7 @@ def tab3():
                 scatter.add_trace(
                     go.Scatter(
                         x=x[order],
-                        y=predicted_y[
+                        y=predicted[
                             order
                         ],
                         mode="lines",
@@ -4934,23 +3435,7 @@ def tab3():
                     paper_bgcolor="#0E0E0E",
                     plot_bgcolor="#0E0E0E",
                     xaxis_title=variable_x,
-                    yaxis_title=variable_y,
-                    margin=dict(
-                        l=20,
-                        r=20,
-                        t=30,
-                        b=20
-                    )
-                )
-
-
-                scatter.update_xaxes(
-                    gridcolor="#2A2A2A"
-                )
-
-
-                scatter.update_yaxes(
-                    gridcolor="#2A2A2A"
+                    yaxis_title=variable_y
                 )
 
 
@@ -4964,121 +3449,74 @@ def tab3():
                 # INTERPRETATION
                 # =============================================================
 
-                st.markdown(
-                    "#### Diễn giải"
-                )
-
-
                 abs_corr = abs(
                     correlation
                 )
 
 
                 if abs_corr >= 0.7:
-
                     strength = "mạnh"
 
                 elif abs_corr >= 0.4:
-
                     strength = "trung bình"
 
                 elif abs_corr >= 0.2:
-
                     strength = "yếu"
 
                 else:
-
                     strength = "rất yếu"
 
 
-                if correlation > 0:
-
-                    direction = "cùng chiều"
-
-                elif correlation < 0:
-
-                    direction = "ngược chiều"
-
-                else:
-
-                    direction = (
-                        "không có tương quan tuyến tính"
-                    )
-
-
-                if report_frequency == "Theo năm":
-
-                    period_text = (
-                        f"{int(start_year)}–"
-                        f"{int(end_year)}"
-                    )
-
-                else:
-
-                    period_text = (
-                        f"{int(start_month):02d}/"
-                        f"{int(start_year)} – "
-                        f"{int(end_month):02d}/"
-                        f"{int(end_year)}"
-                    )
+                direction = (
+                    "cùng chiều"
+                    if correlation > 0
+                    else
+                    "ngược chiều"
+                    if correlation < 0
+                    else
+                    "không đáng kể"
+                )
 
 
                 st.info(
-                    f"Trong giai đoạn {period_text}, "
                     f"{variable_x} và {variable_y} "
-                    f"có mối tương quan {direction} ở mức {strength} "
+                    f"có tương quan {direction} "
+                    f"ở mức {strength} "
                     f"(r = {correlation:.3f}). "
-                    "Kết quả này phản ánh mối liên hệ thống kê "
-                    "và không khẳng định quan hệ nhân quả."
+                    "Kết quả chỉ phản ánh mối liên hệ thống kê."
                 )
 
 
             else:
 
                 st.warning(
-                    "Không đủ số quan sát chung giữa hai biến "
-                    "để thực hiện phân tích."
+                    "Không đủ số quan sát chung."
                 )
 
 
     else:
 
         st.info(
-            "Chọn ít nhất hai chỉ tiêu để hiển thị ma trận tương quan "
-            "và phân tích quan hệ giữa các biến."
+            "Chọn ít nhất hai chỉ tiêu "
+            "để phân tích tương quan."
         )
 
 
     # =========================================================================
-    # DATA VIEW
+    # DETAIL DATA
     # =========================================================================
 
     with st.expander(
         "Xem dữ liệu sử dụng trong phân tích"
     ):
 
-        display_analysis_df = (
-            analysis_df
-            .sort_values(
-                "Ngày",
-                ascending=False
-            )
-            .copy()
-        )
-
-
-        display_analysis_df = (
-            display_analysis_df
-            .drop(
-                columns=[
-                    "Ngày"
-                ]
-            )
-        )
-
-
         st.dataframe(
-            display_analysis_df,
+            analysis_df
+            .drop(columns=["Ngày"])
+            .sort_values(
+                "Thời gian",
+                ascending=False
+            ),
             use_container_width=True,
             hide_index=True
         )
@@ -5091,26 +3529,10 @@ def tab3():
     st.divider()
 
 
-    if report_frequency == "Theo năm":
-
-        st.caption(
-            f"Nguồn dữ liệu: World Bank Indicators API • "
-            f"Quốc gia: {selected_country} • "
-            f"Tần suất: Năm • "
-            f"Giai đoạn: {int(start_year)}–{int(end_year)}"
-        )
-
-
-    else:
-
-        st.caption(
-            f"Nguồn dữ liệu: World Bank High-Frequency Indicators • "
-            f"Quốc gia: {selected_country} • "
-            f"Tần suất: Tháng • "
-            f"Giai đoạn: "
-            f"{int(start_month):02d}/{int(start_year)}–"
-            f"{int(end_month):02d}/{int(end_year)}"
-        )
+    st.caption(
+        f"Tần suất: {frequency.replace('Theo ', '')} • "
+        f"Nguồn: {', '.join(raw_df['Nguồn'].unique())}"
+    )
 
 
 # =============================================================================
