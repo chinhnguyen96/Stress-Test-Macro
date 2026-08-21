@@ -17,6 +17,52 @@ from pathlib import Path
 from groq import Groq
 
 
+import hmac
+
+
+def check_password():
+    """Return True if the user enters the correct password."""
+
+    if st.session_state.get("password_correct", False):
+        return True
+
+    st.markdown(
+        """
+        <h2 style="text-align: center;">
+            🔒 Dashboard Login
+        </h2>
+
+        <p style="text-align: center; color: gray;">
+            Please enter the password to access the dashboard.
+        </p>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    password = st.text_input(
+        "Password",
+        type="password",
+        placeholder="Enter your password",
+        key="dashboard_password",
+    )
+
+    if st.button("Login", use_container_width=True):
+        if hmac.compare_digest(password, st.secrets["APP_PASSWORD"]):
+            st.session_state["password_correct"] = True
+            del st.session_state["dashboard_password"]
+            st.rerun()
+        else:
+            st.error("Incorrect password. Please try again.")
+
+    return False
+
+
+if not check_password():
+    st.stop()
+
+
+
+
 # =============================================================================
 # PAGE CONFIG
 # =============================================================================
